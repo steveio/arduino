@@ -63,7 +63,29 @@ void loop() {
 
   int h1 = floor(h*1000)/1000; 
 
-  lcd.print(t);
+  /**
+   * Temperature Rounding Methods 
+   *  
+  Serial.write(f,2);
+  lcd.write(f,2); // Implements Print::
+  
+  // replace 100 with pow(100, (int)desiredPrecision)
+  floor(19.12345 × 100) ÷ 100.0
+  round(19.12345 × 100) ÷ 100.0
+  ceil(19.12345 × 100) ÷ 100.0
+  
+  printf("%.2f", 37.777779);
+  sprintf(s,"%.2f",t)
+
+   */
+
+
+  lcd.print(t,2);
+  /** 
+   *  @see https://www.sparkfun.com/datasheets/LCD/HD44780.pdf
+   *  Table 4.  Character Codes / Patterns (ROM Code)
+   *  B1101/1111
+   **/
   lcd.print((char)223);
   lcd.setCursor(7,1);
   lcd.print(h1);
@@ -72,7 +94,7 @@ void loop() {
   Serial.println("DHT11 Humidity:");
   Serial.println(h);
   Serial.println("DHT11 Temperature (celsuis):");
-  Serial.println(t);
+  Serial.println(t,1);
   Serial.println("DHT11 Temperature (fahrenheit):");
   Serial.println(f);
 
