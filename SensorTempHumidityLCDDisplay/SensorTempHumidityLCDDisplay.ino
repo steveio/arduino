@@ -31,16 +31,20 @@ void setup() {
 
   // set up the LCD's number of columns and rows:
   lcd.begin(16, 2);
-  // Print a message to the LCD.
-  lcd.print("Temp:  Humidity:");
 
+  lcd.print("Initializing");
+  for(int i=0; i<3; i++)
+  {
+    lcd.print(".");
+    delay(1000);
+  }
 }
 
 // the loop routine runs over and over again forever:
 void loop() {
 
-  // Wait a few seconds between measurements.
-  delay(10000);
+  lcd.clear();
+  lcd.print("Temp:  Humidity:");
 
   lcd.setCursor(0, 1);
 
@@ -57,6 +61,14 @@ void loop() {
     return;
   }
 
+  int h1 = floor(h*1000)/1000; 
+
+  lcd.print(t);
+  lcd.print((char)223);
+  lcd.setCursor(7,1);
+  lcd.print(h1);
+  lcd.print("%");
+
   Serial.println("DHT11 Humidity:");
   Serial.println(h);
   Serial.println("DHT11 Temperature (celsuis):");
@@ -64,7 +76,7 @@ void loop() {
   Serial.println("DHT11 Temperature (fahrenheit):");
   Serial.println(f);
 
-  lcd.print(t);
-  lcd.setCursor(7,1);
-  lcd.print(h);  
+  // Wait a few seconds between measurements.
+  delay(10000);
+
 }
