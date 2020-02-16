@@ -1,0 +1,519 @@
+
+Arduino Morse Code Maritime Signalling Blinker
+
+https://create.arduino.cc/projecthub/shjin/adaptive-led-morse-code-decoder-and-timer-interrupt-8d18a7
+
+Morse code units
+Morse code has dot (1 unit), dash (3 units), inter-element gap (1 unit), letter gap (3 units), and (word) space (7 units).
+
+For example, A can be understood as dot, inter-element gap, dash, and letter gap. 
+
+
+
+/* Each byte is prefixed with a variable number of zero bits and a
+ * single 1, followed by the morse code representation of the
+ * character where 0 = dit and 1 = dah.  For example, the character
+ * e is 0b0000 0010; that is, six prefix 0s, a 1 to indicate the
+ * beginning of the character, and a single 0 represinting the dit.
+ * The table is in ASCII order, so indexing a character into the
+ * table directly yields its morse representation.  The character
+ * set is incomplete.  (Notably, some symbols and all prosigns are
+ * missing.)  Missing characters cause a dah-length inter-character
+ * delay with no intervening symbols. 
+ * From: https://kb8ojh.net/msp430/morse_spin.c
+ */
+const unsigned char morse_ascii[] = {
+    MORSE_NONE, MORSE_NONE, MORSE_NONE, MORSE_NONE,
+    MORSE_NONE, MORSE_NONE, MORSE_NONE, MORSE_NONE,
+    MORSE_NONE, MORSE_NONE, MORSE_NONE, MORSE_NONE,
+    MORSE_NONE, MORSE_NONE, MORSE_NONE, MORSE_NONE,
+    MORSE_NONE, MORSE_NONE, MORSE_NONE, MORSE_NONE,
+    MORSE_NONE, MORSE_NONE, MORSE_NONE, MORSE_NONE,
+    MORSE_NONE, MORSE_NONE, MORSE_NONE, MORSE_NONE,
+    MORSE_NONE, MORSE_NONE, MORSE_NONE, MORSE_NONE,
+    MORSE_NONE, MORSE_NONE, MORSE_NONE, MORSE_NONE,
+    MORSE_NONE, MORSE_NONE, MORSE_NONE, MORSE_NONE,
+    MORSE_NONE, MORSE_NONE, MORSE_NONE, MORSE_NONE,
+    0x73, MORSE_NONE, 0x55, 0x32,                   /* , _ . / */
+    0x3F, 0x2F, 0x27, 0x23,                         /* 0 1 2 3 */
+    0x21, 0x20, 0x30, 0x38,                         /* 4 5 6 7 */
+    0x3C, 0x37, MORSE_NONE, MORSE_NONE,             /* 8 9 _ _ */
+    MORSE_NONE, 0x31, MORSE_NONE, 0x4C,             /* _ = _ ? */
+    MORSE_NONE, 0x05, 0x18, 0x1A,                   /* _ A B C */
+    0x0C, 0x02, 0x12, 0x0E,                         /* D E F G */
+    0x10, 0x04, 0x17, 0x0D,                         /* H I J K */
+    0x14, 0x07, 0x06, 0x0F,                         /* L M N O */
+    0x16, 0x1D, 0x0A, 0x08,                         /* P Q R S */
+    0x03, 0x09, 0x11, 0x0B,                         /* T U V W */
+    0x19, 0x1B, 0x1C, MORSE_NONE,                   /* X Y Z _ */
+    MORSE_NONE, MORSE_NONE, MORSE_NONE, MORSE_NONE,
+    MORSE_NONE, 0x05, 0x18, 0x1A,                   /* _ A B C */
+    0x0C, 0x02, 0x12, 0x0E,                         /* D E F G */
+    0x10, 0x04, 0x17, 0x0D,                         /* H I J K */
+    0x14, 0x07, 0x06, 0x0F,                         /* L M N O */
+    0x16, 0x1D, 0x0A, 0x08,                         /* P Q R S */
+    0x03, 0x09, 0x11, 0x0B,                         /* T U V W */
+    0x19, 0x1B, 0x1C, MORSE_NONE,                   /* X Y Z _ */
+    MORSE_NONE, MORSE_NONE, MORSE_NONE, MORSE_NONE,
+};
+
+
+/* Loop forever */
+    while (1) {
+        /* Send the string in str as morse code */
+        for (i = 0; str[i]; i++) {
+            int inchar = 0; /* Indicates whether we are in the prefix
+                             * padding or the character itself. */
+            unsigned int j;
+            for (j = 0; j < 8; j++) {
+                /* The following lookup yields true for dah and false
+                 * for dit at each position */
+                int bit = morse_ascii[(int)str[i]] & (0x80 >> j);
+                if (inchar) {
+                   /* Set the output pin, delay for dit or dah
+                    * period according to bit, then unset the
+                    * output pin. */
+                    P1OUT = 1;
+                    delay(bit ? DELAY_DAH : DELAY_DIT);
+                    P1OUT = 0;
+                    if (j < 7) {
+                        /* If we're not yet to the end of the character,
+                         * delay one dit period for intra-char delay */
+                        delay(DELAY_DIT);
+                    }
+
+
+
+https://en.wikipedia.org/wiki/International_maritime_signal_flags
+
+Letter/
+phonetic
+name	Flag	ICS meaning as single flag	Meaning when used with numeric complements
+A
+Alfa	ICS Alpha.svg	"I have a diver down; keep well clear at slow speed."	Azimuth or bearing
+B
+Bravo	ICS Bravo.svg	"I am taking in or discharging or carrying dangerous goods." (Originally used by the Royal Navy specifically for military explosives.)	
+C
+Charlie	ICS Charlie.svg	"Affirmative."[a][b]	Course in degrees magnetic
+D
+Delta	ICS Delta.svg	"Keep clear of me; I am maneuvering with difficulty."[b]	Date
+E
+Echo	ICS Echo.svg	"I am altering my course to starboard."[b]	
+F
+Foxtrot	ICS Foxtrot.svg	"I am disabled; communicate with me."[c]	
+G
+Golf	ICS Golf.svg	"I require a pilot."
+By fishing vessels near fishing grounds: "I am hauling nets."	Longitude (The first 2 or 3 digits denote degrees; the last 2 denote minutes.)
+H
+Hotel	ICS Hotel.svg	"I have a pilot on board."[b]	
+I
+India	ICS India.svg	"I am altering my course to port."[b]	
+J
+Juliet	ICS Juliet.svg	"I am on fire and have dangerous cargo on board: keep well clear of me."
+or
+"I am leaking dangerous cargo."	
+K
+Kilo	ICS Kilo.svg	"I wish to communicate with you."	"I wish to communicate with you by...":
+1) Morse signaling by hand-flags or arms;
+2) Loud hailer (megaphone);
+3) Morse signaling lamp;
+4) Sound signals.
+L
+Lima	ICS Lima.svg	In harbour: "The ship is quarantined."
+At sea: "You should stop your vessel instantly."	Latitude (the first 2 digits denote degrees; the last 2 denote minutes.)
+M
+Mike	ICS Mike.svg	"My vessel is stopped and making no way through the water."[b]	
+N
+November	ICS November.svg	"Negative."[a]	
+O
+Oscar	ICS Oscar.svg	"Man overboard."[b] (often attached to the man overboard pole on boats).
+With a sinister hoist, the semaphore flag.	
+P
+Papa	ICS Papa.svg	The blue Peter.
+In harbour: All persons should report on board as the vessel is about to proceed to sea.
+At sea: It may be used by fishing vessels to mean: "My nets have come fast upon an obstruction."	
+Q
+Quebec	ICS Quebec.svg	"My vessel is 'healthy' and I request free pratique."	
+R
+Romeo	ICS Romeo.svg	No ICS meaning as single flag.	Distance (range) in nautical miles.
+S
+Sierra	ICS Sierra.svg	"I am operating astern propulsion."[b]	Speed (velocity) in knots
+T
+Tango	ICS Tango.svg	"Keep clear of me."[b]
+Fishing boats: "Keep clear of me; I am engaged in pair trawling."	Local time. (The first 2 digits denote hours; the last 2 denote minutes.)
+U
+Uniform	ICS Uniform.svg	"You are running into danger."	
+V
+Victor	ICS Victor.svg	"I require assistance."	Speed in kilometres per hour.
+W
+Whiskey	ICS Whiskey.svg	"I require medical assistance."	
+X
+Xray	ICS X-ray.svg	"Stop carrying out your intentions and watch for my signals."	
+Y
+Yankee	ICS Yankee.svg	"I am dragging my anchor."	
+Z
+Zulu	ICS Zulu.svg	"I require a tug."
+By fishing vessels near fishing grounds: "I am shooting nets."[d]
+
+
+https://create.arduino.cc/projecthub/shjin/adaptive-led-morse-code-decoder-and-timer-interrupt-8d18a7
+
+
+// Configuration
+// Minimum tested unit length was 10ms and it works reliably with cheap light resistor.
+const int UNIT_LENGTH = 100;
+const int BUFFER_SIZE = 5;
+
+
+enum class Signal: byte {
+  NOISE = 0,
+  DIT = 1,
+  DAH = 2,
+  ELEMENTGAP = 3,
+  GAP = 4,
+  LONGGAP = 5
+};
+
+struct MorseCodeElement {
+  Signal m_signal;
+  unsigned long m_duration;
+};
+
+class MorseCodeBuffer {
+  int m_size;
+  int m_head;
+  int m_tail;
+  MorseCodeElement* m_buffer;
+  
+public:
+  MorseCodeBuffer(int size) {
+    // Use extra element to distinguish empty vs full.
+    size++;
+    
+    m_size = size;
+    m_head = 0;
+    m_tail = 0;
+    m_buffer = new MorseCodeElement[size];
+  }
+  
+  bool Enqueue(MorseCodeElement element) {    
+    int new_tail = (m_tail + 1) % m_size;
+    
+    // Is full?
+    if (new_tail == m_head) {
+      return false;
+    }
+    
+    m_tail = new_tail;
+    m_buffer[m_tail] = element;
+    
+    return true;
+  }
+  
+  bool TryDequeue(MorseCodeElement* element) {
+    // Is empty?
+    if (m_head == m_tail) {
+      return false;
+    }
+    
+    *element = m_buffer[m_head];
+    m_head = (m_head + 1) % m_size;
+    return true;
+  }
+  
+  int GetCount() {
+      if (m_head == m_tail) {
+        return 0;
+      }
+    
+      return (m_tail - m_head + m_size) % m_size;
+  }
+};
+
+class AdaptiveLogicLevelProcessor {
+  int m_sensorMinValue = 1023;
+  int m_sensorMaxValue = 0;
+  int m_sensorMedianValue = 511;
+  unsigned long m_sensorCalibrationTime = 0;
+  bool m_calibrated;
+
+public:
+  AdaptiveLogicLevelProcessor() {
+    m_sensorMinValue = 1023;
+    m_sensorMaxValue = 0;
+    m_sensorMedianValue = 511;
+    m_sensorCalibrationTime = 0;
+  }
+
+  // sensor calibrate and read
+  bool process(int sensorValue, int* digitalInputValue) {
+    unsigned long currentTime = millis();
+  
+    // Re-calibrate sensor value range
+    if (currentTime - m_sensorCalibrationTime > 5000) {
+      if (m_sensorMinValue < m_sensorMaxValue) {
+  
+        if (m_sensorMaxValue - m_sensorMinValue > 20) {
+          m_sensorMedianValue = m_sensorMinValue + (m_sensorMaxValue - m_sensorMinValue) / 2;
+          m_calibrated = true;
+        } else {
+          Serial.println();
+          Serial.print("Unreliable LOW/HIGH: ");
+          Serial.print(m_sensorMinValue);
+          Serial.print(' ');
+          Serial.print(m_sensorMaxValue);
+          Serial.println();
+          m_calibrated = false;
+        }
+      }
+  
+       m_sensorMaxValue = 0;
+       m_sensorMinValue = 1023;
+       m_sensorCalibrationTime = currentTime;
+    }
+    
+    if (m_sensorMinValue > sensorValue) {
+      m_sensorMinValue = sensorValue;
+    }
+
+    if (m_sensorMaxValue < sensorValue) {
+      m_sensorMaxValue = sensorValue;
+    }
+    
+    if (!m_calibrated) {
+      return false;
+    }
+    
+    *digitalInputValue = sensorValue > m_sensorMedianValue ? HIGH : LOW;
+    return true;
+  }
+};
+
+class MorseCodeElementProcessor {
+  unsigned long m_previousTime = 0;
+  int m_previousSignal = LOW;
+  
+  int m_oneUnitMinValue;
+  int m_oneUnitMaxValue;
+  int m_threeUnitMinValue;
+  int m_threeUnitMaxValue;
+  int m_sevenUnitMinValue;
+  int m_sevenUnitMaxValue;
+
+public:
+  MorseCodeElementProcessor(int unitLengthInMilliseconds) {
+    m_oneUnitMinValue = (int)(unitLengthInMilliseconds * 0.5);
+    m_oneUnitMaxValue = (int)(unitLengthInMilliseconds * 1.5);
+    
+    m_threeUnitMinValue = (int)(unitLengthInMilliseconds * 2.0);
+    m_threeUnitMaxValue = (int)(unitLengthInMilliseconds * 4.0);
+
+    m_sevenUnitMinValue = (int)(unitLengthInMilliseconds * 5.0);
+    m_sevenUnitMaxValue = (int)(unitLengthInMilliseconds * 8.0);
+  }
+
+  bool process(int newSignal, MorseCodeElement* element) {
+    unsigned long currentTime = millis();
+    unsigned long elapsed;
+    bool shouldBuffer = false;
+    
+    element->m_signal = Signal::NOISE;
+    
+    // If previous status was OFF and now it is ON
+    if (m_previousSignal == LOW && newSignal == HIGH) {
+      elapsed = currentTime - m_previousTime;
+      element->m_duration = elapsed;
+      
+      if (m_sevenUnitMinValue <= elapsed) {
+        element->m_signal = Signal::LONGGAP;
+        shouldBuffer = true;
+      } else if (m_threeUnitMinValue <= elapsed && elapsed <= m_threeUnitMaxValue) {
+        element->m_signal = Signal::GAP;
+        shouldBuffer = true;
+      } else if (m_oneUnitMinValue <= elapsed && elapsed <= m_oneUnitMaxValue) {
+        element->m_signal = Signal::ELEMENTGAP;
+        shouldBuffer = true;
+      } else {
+        element->m_signal = Signal::NOISE;
+        shouldBuffer = true;
+      }
+          
+      m_previousSignal = HIGH;
+      m_previousTime = currentTime;
+    } else if (m_previousSignal == HIGH && newSignal == LOW) {
+      elapsed = currentTime - m_previousTime;
+      element->m_duration = elapsed;
+  
+      if (m_threeUnitMinValue <= elapsed && elapsed <= m_threeUnitMaxValue) {
+        element->m_signal = Signal::DAH;
+        shouldBuffer = true;
+      } else if (m_oneUnitMinValue <= elapsed && elapsed <= m_oneUnitMaxValue) {
+        element->m_signal = Signal::DIT;
+        shouldBuffer = true;
+      } else {
+        element->m_signal = Signal::NOISE;
+        shouldBuffer = true;
+      }
+  
+      m_previousSignal = LOW;
+      m_previousTime = currentTime;  
+    }
+    
+    return shouldBuffer;
+  }
+};
+
+class MorseCodeProcessor {
+  private:  
+    static const int TREE_SIZE = 255;
+    static constexpr char tree[TREE_SIZE] = {
+      '\0', '\0', '\0', '5', '\0', '\0', '\0', 'H', '\0', '\0', '\0', '4', '\0', '\0', '\0', 'S',
+      '\0', '\0', '$', '\0', '\0', '\0', '\0', 'V', '\0', '\0', '\0', '3', '\0', '\0', '\0', 'I',
+      '\0', '\0', '\0', '\0', '\0', '\0', '\0', 'F', '\0', '\0', '\0', '\0', '\0', '\0', '\0', 'U',
+      '\0', '?', '\0', '\0', '\0', '_', '\0', '\0', '\0', '\0', '\0', '2', '\0', '\0', '\0', 'E',
+      '\0', '\0', '\0', '&', '\0', '\0', '\0', 'L', '\0', '"', '\0', '\0', '\0', '\0', '\0', 'R',
+      '\0', '\0', '\0', '+', '\0', '.', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', 'A',
+      '\0', '\0', '\0', '\0', '\0', '\0', '\0', 'P', '\0', '@', '\0', '\0', '\0', '\0', '\0', 'W',
+      '\0', '\0', '\0', '\0', '\0', '\0', '\0', 'J', '\0', '\'', '\0', '1', '\0', '\0', '\0', '\0',
+      '\0', '\0', '\0', '6', '\0', '-', '\0', 'B', '\0', '\0', '\0', '=', '\0', '\0', '\0', 'D',
+      '\0', '\0', '\0', '/', '\0', '\0', '\0', 'X', '\0', '\0', '\0', '\0', '\0', '\0', '\0', 'N',
+      '\0', '\0', '\0', '\0', '\0', '\0', '\0', 'C', '\0', ';', '\0', '\0', '\0', '!', '\0', 'K',
+      '\0', '\0', '\0', '(', '\0', ')', '\0', 'Y', '\0', '\0', '\0', '\0', '\0', '\0', '\0', 'T',
+      '\0', '\0', '\0', '7', '\0', '\0', '\0', 'Z', '\0', '\0', '\0', '\0', '\0', ',', '\0', 'G',
+      '\0', '\0', '\0', '\0', '\0', '\0', '\0', 'Q', '\0', '\0', '\0', '\0', '\0', '\0', '\0', 'M',
+      '\0', ':', '\0', '8', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '\0', 'O',
+      '\0', '\0', '\0', '9', '\0', '\0', '\0', '\0', '\0', '\0', '\0', '0', '\0', '\0', '\0'
+    };
+    
+    bool m_error;
+    int m_start;
+    int m_end;
+    int m_index;
+    Signal m_previousInput;
+
+    void reset() {
+      m_error = false;
+      m_start = 0;
+      m_end = TREE_SIZE;
+      m_index = (m_end - m_start) / 2;
+    }
+  
+  public:
+    MorseCodeProcessor() {
+      reset();
+      m_previousInput = Signal::NOISE;
+    }
+
+    bool process(Signal input, char* output) {
+      bool completed = false;
+      
+      if (!m_error && input == Signal::DIT) {
+        if (m_start == m_index) {
+          m_error = true;
+        } else {
+          m_end = m_index;
+          m_index = m_start + (m_end - m_start) / 2;
+        }
+      } else if (!m_error && input == Signal::DAH) {
+        if (m_end == m_index) {
+          m_error = true;
+        } else {
+          m_start = m_index + 1;
+          m_index = m_start + (m_end - m_start) / 2;
+        }
+      } else if (input == Signal::GAP || input == Signal::LONGGAP) {
+        completed = !m_error && tree[m_index] != 0;
+        
+        if (completed) {
+          output[0] = tree[m_index];
+          output[1] = '\0';
+
+          if (input == Signal::LONGGAP) {
+            output[1] = ' ';
+            output[2] = '\0';
+          }
+        }
+        
+        reset();
+      }
+
+      m_previousInput = input;
+
+      return completed;
+    }
+};
+
+constexpr char MorseCodeProcessor::tree[];
+
+MorseCodeBuffer buffer(BUFFER_SIZE);
+MorseCodeProcessor morseCodeProcessor;
+AdaptiveLogicLevelProcessor logicLevelProcessor;
+MorseCodeElementProcessor morseCodeElementProcessor(UNIT_LENGTH);
+
+
+/************************************************************
+ * Timer interrupt function to process analog signal
+ ************************************************************/
+SIGNAL(TIMER0_COMPA_vect) {
+  cli();
+  
+  int digitalInputValue;
+
+  if (logicLevelProcessor.process(analogRead(A0), &digitalInputValue)) {
+    MorseCodeElement element;
+  
+    if (morseCodeElementProcessor.process(digitalInputValue, &element)) {
+      buffer.Enqueue(element);
+    }
+  }
+
+  sei();
+}
+
+void setup() {
+  Serial.begin(9600);
+
+  // Sets up a timer interrupt to be called for every millisecond
+  cli();
+  OCR0A = 0xAF;
+  TIMSK0 |= _BV(OCIE0A);
+  sei();
+}
+
+/************************************************************
+ * Helper function to dequeue an item from the buffer safely
+ ************************************************************/
+bool TryDequeueSafe(MorseCodeElement* element) {
+  // Dequeue item from the buffer while disabling interrupt
+  // so that it doesn't corrupt buffer status
+  cli();
+  bool result = buffer.TryDequeue(element);
+  sei();
+
+  return result;
+}
+
+char* output = new char[3];
+
+void loop() {
+  MorseCodeElement element;
+  
+  // Drain buffer
+  while (TryDequeueSafe(&element)) {
+    if (element.m_signal == Signal::DIT) {
+      Serial.print(".");
+    } else if (element.m_signal == Signal::DAH) {
+      Serial.print("-");
+    }
+    
+    if (morseCodeProcessor.process(element.m_signal, output)) {
+      Serial.print('(');
+      Serial.print(output);
+      Serial.print(')');
+    }
+
+    if (element.m_signal == Signal::LONGGAP) {
+      Serial.println();
+    }
+  }
+}
