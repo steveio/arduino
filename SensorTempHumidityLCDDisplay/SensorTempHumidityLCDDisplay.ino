@@ -12,6 +12,10 @@
 
 #include <DHT.h>
 #include <LiquidCrystal.h>
+#include <Wire.h>
+#include "RTClib.h"
+
+DS1307 rtc;
 
 #define dht_apin A0
 DHT dht(dht_apin, DHT11);
@@ -19,11 +23,20 @@ DHT dht(dht_apin, DHT11);
 LiquidCrystal lcd(12, 11, 5, 4, 3, 2);
 
 
-// the setup routine runs once when you press reset:
 void setup() {
-  // initialize serial communication at 9600 bits per second:
   Serial.begin(19200);
-  delay(500);//Delay to let system boot
+
+  rtc.begin();
+
+#ifdef AVR
+  Wire.begin();
+#else
+  Wire1.begin(); // Shield I2C pins connect to alt I2C bus on Arduino Due
+#endif
+
+  Serial.println("RTC adjust()");
+  rtc.adjust(DateTime(__DATE__, __TIME__));
+ 
 
   Serial.println("DHT11 Humidity & temperature Sensor\n\n");
   delay(1000);//Wait before accessing Sensor
@@ -44,6 +57,23 @@ void setup() {
 void loop() {
 
   lcd.clear();
+  lcd.setCursor(0, 0);
+
+  DateTime now = rtc.now();
+
+  char dt[16];
+  char tm[16];
+  
+  sprintf(dt, "%02d/%02d/%02d", now.day(),now.month(),now.year());
+  sprintf(tm, "%02d:%02d", now.hour(),now.minute());
+
+  lcd.print(dt);
+  lcd.setCursor(0, 1);
+  lcd.print(tm);
+
+  delay(5000);
+
+  lcd.clear();
   lcd.print("Temp:  Humidity:");
 
   lcd.setCursor(0, 1);
@@ -53,6 +83,7 @@ void loop() {
   float h = dht.readHumidity();
   // Read temperature as Celsius (the default)
   float t = dht.readTemperature();
+  
   // Read temperature as Fahrenheit (isFahrenheit = true)
   float f = dht.readTemperature(true);
 
@@ -84,7 +115,7 @@ void loop() {
   /** 
    *  @see https://www.sparkfun.com/datasheets/LCD/HD44780.pdf
    *  Table 4.  Character Codes / Patterns (ROM Code)
-   *  B1101/1111
+   *  0xdf - B1101 1111
    **/
   lcd.print((char)223);
   lcd.setCursor(7,1);
