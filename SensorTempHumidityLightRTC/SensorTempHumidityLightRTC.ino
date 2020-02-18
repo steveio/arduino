@@ -17,6 +17,7 @@
 #include <ArduinoJson.h>
 
 const char app_name[12] = "sensor.meteo";
+const char client_key[128] = "128BITHASHKEY";
 
 DS1307 rtc;
 
@@ -185,11 +186,12 @@ void loop() {
 void serialiseJSON(uint32_t ts, float t, float h, int ldr)
 {
 
-  const size_t capacity = JSON_ARRAY_SIZE(1) + JSON_OBJECT_SIZE(2) + JSON_OBJECT_SIZE(4);
+  const size_t capacity = JSON_ARRAY_SIZE(2) + JSON_OBJECT_SIZE(2) + JSON_OBJECT_SIZE(4);
   
   DynamicJsonDocument doc(capacity);
   
   doc["app"] = app_name;
+  doc["api_key"] = client_key;
   
   JsonArray data = doc.createNestedArray("data");
   
@@ -198,7 +200,9 @@ void serialiseJSON(uint32_t ts, float t, float h, int ldr)
   data_0["temp"] = t;
   data_0["humidity"] = h;
   data_0["LDR"] = ldr;
-  
+
+  // Parse from Serial Log (header prob not required)
+  // grep "^{" sensor.meteo.json.raw  | awk '{ print substr($1,1,length($1)-2)"," }' | awk '{ print substr($1,31,length($1))}'
   serializeJson(doc, Serial);
 
   // Start a new line
