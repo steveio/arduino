@@ -28,6 +28,9 @@ int prs_apin = A1;
 int prs_apin_val = 0;
 const int prs_threshold = 300; // day/night level, 300 in range of direct sunlight
 
+int led_apin = 9;
+int led_brightness;
+
 LiquidCrystal lcd(12, 11, 5, 4, 3, 2);
 
 
@@ -45,8 +48,10 @@ void setup() {
   Serial.println("RTC adjust()");
   rtc.adjust(DateTime(__DATE__, __TIME__));
 
+  pinMode(prs_apin,INPUT);
+  pinMode(led_apin,OUTPUT);
 
-  Serial.println("Temperature, Humidity & Daylight Sensor\n\n");
+  Serial.println("Temperature, Humidity & Light Sensor\n\n");
 
   delay(1000);//Wait before accessing Sensor
   dht.begin();
@@ -85,16 +90,6 @@ void loop() {
   Serial.println(dtm);
   Serial.println(ts);
 
-  lcd.print(dt);
-  lcd.setCursor(0, 1);
-  lcd.print(tm);
-
-  delay(5000);
-
-  lcd.clear();
-  lcd.print("Temp:  Humidity:");
-
-  lcd.setCursor(0, 1);
 
   // Reading temperature or humidity takes about 250 milliseconds!
   // Sensor readings may also be up to 2 seconds 'old' (its a very slow sensor)
@@ -128,16 +123,6 @@ void loop() {
    */
 
 
-  lcd.print(t,2);
-  /** 
-   *  @see https://www.sparkfun.com/datasheets/LCD/HD44780.pdf
-   *  Table 4.  Character Codes / Patterns (ROM Code)
-   *  0xdf - B1101 1111
-   **/
-  lcd.print((char)223);
-  lcd.setCursor(7,1);
-  lcd.print(h1);
-  lcd.print("%");
 
   Serial.println("DHT11 Humidity:");
   Serial.println(h);
@@ -146,31 +131,61 @@ void loop() {
   Serial.println("DHT11 Temperature (fahrenheit):");
   Serial.println(f);
 
-  delay(5000);
 
   prs_apin_val = analogRead(prs_apin);
   Serial.println("PhotoResistor: ");
   Serial.println(prs_apin_val, DEC);
 
+  int prs_adjusted;
+
+  // shift linear scale
+  int shift_pct = 75;
+  // led brightness inversely proportionate to LRD light level + shift factor
+  prs_adjusted = prs_apin_val - (prs_apin_val * shift_pct / 100);
+  // led brightness proportionate to LRD light level
+  //prs_adjusted = 1023 - prs_apin_val;
+
+  //scale: map 0-1023 to 0-255 (range analogWrite)
+  led_brightness = map(prs_adjusted, 0, 1023, 0, 255);
+  
+  analogWrite(led_apin, led_brightness);
+
+  Serial.println("prs_adjusted: ");
+  Serial.println(prs_adjusted);
+  Serial.println("led_brightness: ");
+  Serial.println(led_brightness);
+
+  serialiseJSON(ts, t, h, prs_apin_val);
+
+  Serial.println(" ");
+
+  // Process LCD Writes w/ delay
+  lcd.print(dt);
+  lcd.setCursor(0, 1);
+  lcd.print(tm);
+  delay(5000);
+  lcd.clear();
+  lcd.print("Temp:  Humidity:");
+  lcd.setCursor(0, 1);
+  lcd.print(t,2);
+  lcd.print((char)223);
+  lcd.setCursor(7,1);
+  lcd.print(h1);
+  lcd.print("%");
+  delay(5000);
   lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print("PhotoResistor: ");
   lcd.setCursor(0, 1);
   lcd.print(prs_apin_val,DEC);
   lcd.print(" : ");
-  /**
-   * Dark -> Light == High -> Low (decreasing resistance)
-   */
-  if (prs_apin_val < prs_threshold)
+
+  if (prs_adjusted < prs_threshold)
   {
-    lcd.print(F("Daylight"));
+    lcd.print(F("Day"));
   } else {
     lcd.print(F("Night")); 
   }
-
-  serialiseJSON(ts, t, h, prs_apin_val);
-
-  Serial.println(" ");
 
   delay(5000);
 
@@ -178,6 +193,9 @@ void loop() {
 
 /**
  * Serialise a single data sample formatted as JSON object
+ * When is JSON too verbose for sensor data? Is structure & readability (of keys) worth payload duplication?
+ * Is a simple delimited data format better suited for sensor LAN ?
+ * 
  * @param int unix timestamp
  * @param float temp (celsuis)
  * @param float humidity
