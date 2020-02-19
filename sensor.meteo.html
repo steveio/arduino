@@ -46,7 +46,7 @@ var svg = d3.select("#my_dataviz")
 //d3.csv("https://raw.githubusercontent.com/holtzy/data_to_viz/master/Example_dataset/5_OneCatSevNumOrdered.csv", function(data) {
 d3.json("http://127.0.0.1:3001/sensor.meteo.json", function(data) {
 
-data.forEach(function(d){ d.time = new Date(d.ts * 1000) });
+    data.forEach(function(d){ d.time = new Date(d.ts * 1000) });
 
     // Add X axis --> it is a date format
     var x = d3.scaleTime()
@@ -63,6 +63,7 @@ data.forEach(function(d){ d.time = new Date(d.ts * 1000) });
     svg.append("g")
       .call(d3.axisLeft(y));
 
+
     // Add the line
     svg.append("path")
       .datum(data)
@@ -73,6 +74,46 @@ data.forEach(function(d){ d.time = new Date(d.ts * 1000) });
         .x(function(d) { return x(d.time) })
         .y(function(d) { return y(d.LDR) })
         )
+
+
+
+    // Add 2nd (right) Y axis
+    var y1 = d3.scaleLinear()
+      .domain([0, d3.max(data, function(d) { return +d.humidity; })+15])
+      .range([ height, 0 ]);
+    svg.append("g")
+       .attr("transform", "translate(" + width + " ,0)")	
+      .call(d3.axisRight(y1))
+      .append("text")
+      .attr("transform", "rotate(-90)")
+      .attr("y", 6)
+      .attr("dy", ".71em")
+      .style("text-anchor", "end")
+      .text("Temperature (ºF)");;
+
+
+    // Add the line
+    svg.append("path")
+      .datum(data)
+      .attr("fill", "none")
+      .attr("stroke", "#e41a1c")
+      .attr("stroke-width", 1.5)
+      .attr("d", d3.line()
+        .x(function(d) { return x(d.time) })
+        .y(function(d) { return y1(d.temp) })
+        )
+
+    // Add the line
+    svg.append("path")
+      .datum(data)
+      .attr("fill", "none")
+      .attr("stroke", "#4daf4a")
+      .attr("stroke-width", 1.5)
+      .attr("d", d3.line()
+        .x(function(d) { return x(d.time) })
+        .y(function(d) { return y1(d.humidity) })
+        )
+
 
 })
 
