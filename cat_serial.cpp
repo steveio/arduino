@@ -1,7 +1,15 @@
 /**
 * cat_serial.cpp
-* A simple cmd line cat tool to display output from a serial device to STD OUT 
+*
+* A simple linux cmd line cat tool to display char ascii output from an (Arduino) serial device 
+* Concept is to write serial log output to TCP socket for offline device network testing
+*
 * Usage - 
+* ./cat_serial logfilename.txt [json]
+*
+* If [json] is specified output only lines beginning {
+*
+* Build -
 *  gcc ./cat_serial.cpp -o cat_serial
 *  ./cat_serial 
 *
@@ -58,17 +66,26 @@ int main(int argc, char const *argv[])
 
 	signal(SIGINT, signal_callback_handler);
 
+	int format = 0; // include all log lines in STD out
 	char filename[32];
 	strcpy(filename, argv[1]);
 
-	if (argc != 2)
+	if (argc < 2)
 	{
-		printf("Usage: ./cat_serial.txt [file-name]\n");
+		printf("Usage: ./cat_serial.txt file-name [json] \n");
 		return 1;
+	}
+	if (argc == 3)
+	{
+		char filter[4];
+		strcpy(filter, argv[2]);
+		if (strcmp(filter,"json") == 0)
+		{
+			format = 1;
+		}
 	}
 
 	fp = fopen(filename,"w");
-
 	if(fp == NULL)
 	{
 		printf("Error - cannot open log file");
@@ -151,13 +168,22 @@ int main(int argc, char const *argv[])
 		{
 			//printf("%d \n",(int)read_buf[i]); 
 			//printf("%c \n",read_buf[i]);
-			fprintf(fp,"%c \n",read_buf[i]);
-			if (read_buf[i] == 10)
+			if (read_buf[i] == 10) // newline
 			{
-				if (line_buf[0] == 123)
+				if (format == 1) // json only
 				{
-					printf("%s \n",line_buf); // print only lines beginning {
-					fprintf(fp,"%s",line_buf);
+					if (line_buf[0] == 123) // ^{
+					{
+						printf("%s \n",line_buf); 
+						fputs(line_buf, fp);
+						fputc(10, fp);
+						fflush(fp);
+					}
+				} else { // output all lines
+					printf("%s \n",line_buf);
+					fputs(line_buf, fp);
+					fputc(10, fp);
+					fflush(fp);
 				}
 				memset(&line_buf, '\0', sizeof(line_buf));
 
