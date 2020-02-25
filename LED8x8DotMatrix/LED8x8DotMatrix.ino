@@ -19,18 +19,18 @@ void setup() {
 
   Serial.begin(115200);
 
-  Serial.println(lc.getDeviceCount());
-
   lc.shutdown(0,false);
   // Set brightness to a medium value
   lc.setIntensity(0,6);
   // Clear the display
   lc.clearDisplay(0);  
+
+  drawSpaceInvader();
+
 }
 
 void loop() {
 
-  drawSpaceInvader();
   
   //drawFaces();
 }
@@ -50,27 +50,31 @@ void loop() {
 */
 void drawSpaceInvader(){
 
-  byte si[8]= {0x18,0x3c,0x7e,0xdb,0xff,0x24,0x5a,0x81};
+  byte si[8]= {0x18,0x3c,0x7e,0xdb,0xff,0x24,0x5a,0x81};  
+  int len = sizeof(si) / sizeof(si[0]); // len type could also be size_t
+  byte b[len]; 
 
-  // H-scroll out right -> left
-  for(int s=0; s<8; s++)
-  {    
-    for(int i=0; i<8; i++)
-    {    
-      lc.setColumn(0,i,si[i] << s);
-    }
-    delay(delaytime);
-  }
+  shiftUp(si,b,len,i);
 
-  // H-scroll in right -> left
-  for(int s=8; s>=0; s--)
-  {    
-    for(int i=0; i<8; i++)
+  /*
+  for(int i=1; i<9; i++)
+  {
+    //shiftRight(si,b,len,1);
+    //shiftDown(si,b,len,i);
+    //shiftUp(si,b,len,i);
+  
+    Serial.println("");
+  
+    for(int j=0; j<8; j++)
     {    
-      lc.setColumn(0,i,si[i] << s);
+      Serial.println(b[j],BIN);
+      lc.setColumn(0,j,b[j]);
     }
-    delay(delaytime);
+    delay(500);
   }
+  */
+
+  /*
 
   // V-Wipe/Blind
   for(int s=0; s<9; s++)
@@ -100,9 +104,73 @@ void drawSpaceInvader(){
   // Clear the display
   lc.clearDisplay(0);  
 
-  delay(delaytime * 3);
-
+  delay(delaytime);
+  */
 }
+
+
+
+/**
+ * Scroll - Vertical Up
+ */
+void shiftUp(byte *in, byte *out, int sz, int n)
+{
+
+  for(int i = 0; i<sz; i++)
+  {
+    out[i+n] = in[i];
+  }
+  return out;
+}
+
+/**
+ * Scroll - Vertical Down
+ */
+void shiftDown(byte *in, byte *out, int sz, int n)
+{
+
+  for(int i = 0; i<=n; i++)
+  {
+    out[i] = 0x00;
+  }
+  for(int i = n; i<sz; i++)
+  {
+    out[i] = in[i-n];
+  }
+  return out;
+}
+
+
+/**
+ * Scroll - Right Shift
+ */
+void shiftRight(byte *in, byte *out, int sz, int n)
+{
+  for(int i=0; i<sz; i++)
+  {    
+    //Serial.println(in[i],BIN);
+    //byte b = (in[i]);
+    byte b = (in[i] << n);
+    Serial.println(b,BIN);
+    out[i] = b;
+  }
+  return out;
+}
+
+/**
+ * Scroll - Left Shift
+ */
+void shiftLeft(byte *in, byte *out, int sz, int n)
+{
+  for(int i=8; i<sz; i--)
+  {
+    byte b = (in[i] << n);
+    Serial.println(b,BIN);
+    out[i] = b;
+  }
+  return out;
+}
+
 
 void drawFaces(){
 
