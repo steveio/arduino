@@ -92,5 +92,5 @@ void loop() {
       }
   }
 
-  delayMicroseconds(30000); // ~ (25 - 30ms) to ensure return pulse read time
+  delayMicroseconds(20000); // ~ (25 - 30ms) to ensure return pulse read time
 }
