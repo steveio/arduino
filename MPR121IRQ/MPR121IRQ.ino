@@ -1,0 +1,112 @@
+/*********************************************************
+MPR121 12-channel Capacitive touch sensor
+
+Designed specifically to work with the MPR121 Breakout in the Adafruit shop 
+  ----> https://www.adafruit.com/products/
+
+Implements IRQ interupt triggered event model
+
+These sensors use I2C communicate, at least 2 pins are required 
+to interface
+
+Adafruit invests time and resources providing this open source code, 
+please support Adafruit and open-source hardware by purchasing 
+products from Adafruit!
+
+Written by Limor Fried/Ladyada for Adafruit Industries.  
+BSD license, all text above must be included in any redistribution
+**********************************************************/
+
+#include <Wire.h>
+#include "Adafruit_MPR121.h"
+
+
+#ifndef _BV
+#define _BV(bit) (1 << (bit)) 
+#endif
+
+int irqPin = 2;
+volatile int irqState = 0;
+
+
+Adafruit_MPR121 cap = Adafruit_MPR121();
+
+// Keeps track of the last pins touched
+// so we know when buttons are 'released'
+uint16_t lasttouched = 0;
+uint16_t currtouched = 0;
+
+
+void handleIRQ()
+{
+  irqState = 1;
+}
+
+
+void readSensor()
+{
+  currtouched = cap.touched();
+  
+  for (uint8_t i=0; i<12; i++) {
+    // it if *is* touched and *wasnt* touched before, alert!
+    if ((currtouched & _BV(i)) && !(lasttouched & _BV(i)) ) {
+      Serial.print(i); Serial.println(" touched");
+    }
+    // if it *was* touched and now *isnt*, alert!
+    if (!(currtouched & _BV(i)) && (lasttouched & _BV(i)) ) {
+      Serial.print(i); Serial.println(" released");
+    }
+  }
+
+  lasttouched = currtouched;
+
+  return;
+
+  Serial.print("\t\t\t\t\t\t\t\t\t\t\t\t\t 0x"); Serial.println(cap.touched(), HEX);
+  Serial.print("Filt: ");
+  for (uint8_t i=0; i<12; i++) {
+    Serial.print(cap.filteredData(i)); Serial.print("\t");
+  }
+  Serial.println();
+  Serial.print("Base: ");
+  for (uint8_t i=0; i<12; i++) {
+    Serial.print(cap.baselineData(i)); Serial.print("\t");
+  }
+  Serial.println();
+
+}
+
+void setup() {
+
+  Serial.begin(115200);
+
+  while (!Serial) {
+    delay(10);
+  }
+
+  Serial.println("Adafruit MPR121 Capacitive Touch sensor test"); 
+
+  // Default address is 0x5A, if tied to 3.3V its 0x5B
+  // If tied to SDA its 0x5C and if SCL then 0x5D
+  if (!cap.begin(0x5A)) {
+    Serial.println("MPR121 not found, check wiring?");
+    while (1);
+  }
+  Serial.println("MPR121 found!");
+
+  pinMode(irqPin, INPUT);
+  digitalWrite(irqPin, HIGH);
+
+  attachInterrupt(digitalPinToInterrupt(irqPin), handleIRQ, FALLING);
+
+}
+
+void loop() {
+
+  if (irqState == 1)
+  {
+    readSensor();
+    digitalWrite(irqPin, HIGH);
+    irqState = 0;
+  }
+}
