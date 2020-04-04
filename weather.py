@@ -1,137 +1,110 @@
+#
+# Weather Daily Metric & Stats
+# Process 1..n daily json format data file recording weather sensor metrics: temp, humidity, light, pressure
+# Compute interval (daily) metric stats: Average, Min, Max, STD Deviation, % Change
+# Chart / Plot results
+#
+
+import os
 import json
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import numpy as np
 import pandas as pd
 from datetime import datetime as dt
+import seaborn as sns
 
-## sample interval 15seconds
+sns.set(rc={'figure.figsize':(11, 4)})
 
-with open('./data/weather.json') as f:
-   data = json.load(f)
-print data
+"""
+Pre-process sensor SD Card data file;
+grep "^\[" ./data/20200403.TXT | sed 's/\[//g' | sed 's/\]/,/g' > ./data/20200403.json
 
-df = pd.DataFrame(data)
+"""
+
+### DataFrame to store Daily Metrics - Average, Mix, Max, STD Deviation, Close
+path = "data/weather/"
+
+for (path, dirs, files) in os.walk(path):
+    files = [ fi for fi in files if fi.endswith(".json") ]
+
+
+df_stat = pd.DataFrame(columns = ['data', 'date', 'mean' , 'std', 'min' , 'max', 'last'])
+frames = []
+stats = []
+
+
+def load_json_data(filepath, frames, df_stat):
+    with open(filepath) as f:
+        d = json.load(f)
+        df = pd.DataFrame(d)
+        filename = os.path.basename(filepath)
+        a = os.path.splitext(filename)
+        date = a[0]
+        ### Compute Daily Average
+        row1 = pd.DataFrame({'data': 'pressure','date': date,'mean': df.p.mean() ,'std': df.p.std(),'min': df.p.min(),'max': df.p.max(),'last': df.p.iloc[-1]},index=[0])
+        row2 = pd.DataFrame({'data': 'tempC','date': date,'mean': df.tempC.mean() ,'std': df.tempC.std(),'min': df.tempC.min(),'max': df.tempC.max(),'last': df.tempC.iloc[-1]},index=[0])
+        row3 = pd.DataFrame({'data': 'humidity','date': date,'mean': df.h.mean() ,'std': df.h.std(),'min': df.h.min(),'max': df.h.max(),'last': df.h.iloc[-1]},index=[0])
+        row4 = pd.DataFrame({'data': 'light','date': date,'mean': df.LDR.mean() ,'std': df.LDR.std(),'min': df.LDR.min(),'max': df.LDR.max(),'last': df.LDR.iloc[-1]},index=[0])
+
+        df_stat = df_stat.append(row1,ignore_index=True,sort=True)
+        df_stat = df_stat.append(row2,ignore_index=True,sort=True)
+        df_stat = df_stat.append(row3,ignore_index=True,sort=True)
+        df_stat = df_stat.append(row4,ignore_index=True,sort=True)
+
+        frames.append(df)
+        return df_stat
+
+
+for f in files:
+    filename = path+f
+    print filename
+    df_stat = load_json_data(filename,frames,df_stat)
+
+
+print df_stat
+
+df = pd.concat(frames)
+
+df.sort_values(by='ts', ascending=True)
 
 df['datetime'] = pd.to_datetime(df['ts'],unit='s')
+df['dts'] = df['datetime'].dt.strftime('%d/%m/%Y %H:%M:%S')
 
-df['dts'] = df['datetime'].dt.strftime('%d/%m/%Y %I:%M:%S')
 
-print df.info()
-###print df.dts
+print df.describe()
 
-fig, ax = plt.subplots(3)
+
+fig, ax = plt.subplots(nrows=2, ncols=2)
+
+fig.suptitle('Weather Daily Stats')
+
+df_stat.set_index('date', inplace=True)
+
+df_stat[(df_stat.data == 'tempC')].plot(y=['min','max','mean','last'],legend=True, ax=ax[0,0]).set_title('temp(C)')
+df_stat[(df_stat.data == 'humidity')].plot(y=['min','max','mean','last'],legend=True, ax=ax[0,1]).set_title('Humidity')
+df_stat[(df_stat.data == 'pressure')].plot(y=['min','max','mean','last'],legend=True, ax=ax[1,0]).set_title('Pressure')
+df_stat[(df_stat.data == 'light')].plot(y=['min','max','mean','last'],legend=True, ax=ax[1,1]).set_title('Light')
+
+plt.subplots_adjust(bottom=0.1)
+plt.show()
+
+
+fig, ax = plt.subplots(4)
 
 fig.suptitle('Weather Stats')
 
 ax[0].set_title('Pressure (Pascals)')
-ax[0].xaxis.set_major_formatter(mdates.DateFormatter('%b %d %I:%M'))
+ax[0].xaxis.set_major_formatter(mdates.DateFormatter('%b %d %H:%M'))
 ax[0].plot(df['datetime'], df['p'])
 ax[1].set_title('Temp (Celcius)')
-ax[1].xaxis.set_major_formatter(mdates.DateFormatter('%b %d %I:%M'))
+ax[1].xaxis.set_major_formatter(mdates.DateFormatter('%b %d %H:%M'))
 ax[1].plot(df['datetime'], df['tempC'])
 ax[2].set_title('Humidity')
-ax[2].xaxis.set_major_formatter(mdates.DateFormatter('%b %d %I:%M'))
+ax[2].xaxis.set_major_formatter(mdates.DateFormatter('%b %d %H:%M'))
 ax[2].plot(df['datetime'], df['h'])
-
-
-
-plt.show()
-
-
-"""
-
-
-#set ticks every week
-ax.xaxis.set_major_locator(mdates.WeekdayLocator())
-#set major ticks format
-ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
-
+ax[3].set_title('Light (LDR)')
+ax[3].xaxis.set_major_formatter(mdates.DateFormatter('%b %d %H:%M'))
+ax[3].plot(df['datetime'], df['LDR'])
 
 plt.show()
-
-
-fig, ax = plt.subplots(figsize=(15,7))
-
-plt.plot(df.datetime, df.tempC)
-
-dt_fmt = mdates.DateFormatter('%d/%m/%Y %I:%M:%S')
-
-plt.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
-
-plt.title('')
-plt.xlabel('Time')
-plt.ylabel('Value')
-plt.grid(axis='y', alpha=0.75)
-plt.legend()
-plt.show()
-
-
-df_split = np.array_split(df, 8)
-
-###print(df_split[0]);
-
-df_stat = pd.DataFrame(columns = ['mean' , 'std', 'min' , 'max', 'last'])
-
-print(df_stat)
-
-for d in df_split:
-    #row = pd.Series([d.pascals.mean() , d.pascals.std(), d.pascals.min(), d.pascals.max()])
-    row = pd.DataFrame({'mean': d.pascals.mean() ,'std': d.pascals.std(),'min': d.pascals.min(),'max': d.pascals.max(),'last': d.pascals.iloc[-1]},index=[0])
-    df_stat = df_stat.append(row,ignore_index=True,sort=True)
-
-df_pct = df_stat.pct_change();
-
-print(df_pct)
-
-plt.plot( 'last', data=df_pct)
-plt.plot( 'mean', data=df_pct)
-###plt.plot( 'std', data=df_pct)
-plt.plot( 'min', data=df_pct)
-plt.plot( 'max', data=df_pct)
-
-plt.title('')
-plt.xlabel('Period')
-plt.ylabel('% Change')
-plt.grid(axis='y', alpha=0.75)
-plt.legend()
-plt.show()
-
-
-x = pd.Series(df.index)
-y = pd.Series(df.pascals)
-
-## compute linear regression
-m, b = np.polyfit(x, y, 1)
-
-print(m)
-print(b)
-
-
-plt.plot(x,y)
-plt.plot(x, m*x + b)
-plt.ylabel('Pascals (Pa)')
-plt.savefig('bmp180_700pts.png')
-
-plt.show()
-
-
-    s = pd.Series(d.pascals)
-    c = s.pct_change()
-
-c.plot.hist(grid=True, bins=20, rwidth=0.9)
-plt.title('Pressure % Change Histogram')
-plt.xlabel('Pascals')
-plt.ylabel('Count')
-plt.grid(axis='y', alpha=0.75)
-plt.show()
-
-s = pd.Series(df.pascals)
-
-print(s.pct_change())
-
-###print(df.diff(periods=3))
-
-###df.insert(0, 'index', range(0, len(df)))
-
-"""
