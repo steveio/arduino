@@ -4,6 +4,8 @@
 # Compute interval (daily) metric stats: Average, Min, Max, STD Deviation, % Change
 # Chart / Plot results
 #
+# Demonstrates some uses of Python - Pandas, Matplotlib
+#
 
 import os
 import json
@@ -41,7 +43,7 @@ def load_json_data(filepath, frames, df_stat):
         filename = os.path.basename(filepath)
         a = os.path.splitext(filename)
         date = a[0]
-        ### Compute Daily Average
+        ### Compute Daily Stats - Mean, Min, Max, STD Deviation (freq: all data points)
         row1 = pd.DataFrame({'data': 'pressure','date': date,'mean': df.p.mean() ,'std': df.p.std(),'min': df.p.min(),'max': df.p.max(),'last': df.p.iloc[-1]},index=[0])
         row2 = pd.DataFrame({'data': 'tempC','date': date,'mean': df.tempC.mean() ,'std': df.tempC.std(),'min': df.tempC.min(),'max': df.tempC.max(),'last': df.tempC.iloc[-1]},index=[0])
         row3 = pd.DataFrame({'data': 'humidity','date': date,'mean': df.h.mean() ,'std': df.h.std(),'min': df.h.min(),'max': df.h.max(),'last': df.h.iloc[-1]},index=[0])
@@ -71,6 +73,163 @@ df.sort_values(by='ts', ascending=True)
 df['datetime'] = pd.to_datetime(df['ts'],unit='s')
 df['dts'] = df['datetime'].dt.strftime('%d/%m/%Y %H:%M:%S')
 
+
+# https://www.dataquest.io/blog/tutorial-time-series-analysis-with-pandas/
+
+df = df.set_index('datetime')
+df.index
+
+# add temporal column indexes
+df['Year'] = df.index.year
+df['Month'] = df.index.month
+df['Day'] = df.index.day
+df['Weekday Name'] = df.index.weekday_name
+df['Hour'] = df.index.hour
+
+# display a random sample of 5 rows
+#print df.sample(5, random_state=0)
+
+# display a single day
+#print df.loc['2020-04-03']
+
+# display data for a datetime range
+#print df.loc['2020-04-02 05:00':'2020-04-03 22:00']
+
+
+# Plot each metric as line chart
+fig, ax = plt.subplots(4)
+
+ax[0].plot(df.loc['2020-04-02 05:00':'2020-04-03 17:00']['tempC'],linewidth=0.5, label='Temp (C)')
+ax[0].set_title('Temp (C)')
+ax[0].set_ylabel('')
+ax[0].legend();
+
+ax[1].plot(df.loc['2020-04-02 05:00':'2020-04-03 17:00']['h'],linewidth=0.5, label='Humidity')
+ax[1].set_title('Humidity %')
+ax[1].set_ylabel('')
+ax[1].legend();
+
+ax[2].plot(df.loc['2020-04-02 05:00':'2020-04-03 17:00']['p'],linewidth=0.5, label='Pressure (pascals)')
+ax[2].set_title('Barometric Air Pressure')
+ax[2].set_ylabel('')
+ax[2].legend();
+
+ax[3].plot(df.loc['2020-04-02 05:00':'2020-04-03 17:00']['LDR'],linewidth=0.5, label='Light Level (LDR)')
+ax[3].set_title('Light Level')
+ax[3].set_ylabel('')
+ax[3].legend();
+
+
+plt.show()
+
+
+
+data_columns = ['p', 'tempC', 'h', 'LDR']
+
+# Resample to hourly / daily frequency, aggregating with mean, max, min
+
+df_hourly_mean = df[data_columns].resample('H').mean()
+df_daily_mean = df[data_columns].resample('D').mean()
+
+df_hourly_max = df[data_columns].resample('H').max()
+df_daily_max = df[data_columns].resample('D').max()
+
+df_hourly_min = df[data_columns].resample('H').min()
+df_daily_min = df[data_columns].resample('D').min()
+
+print df_hourly_mean.head(15)
+
+# compare rowcounts to see difference in data point counts
+#print(df.shape[0])
+#print(df_hourly_mean.shape[0])
+
+# chart hourly/daily avg, min, max for temperature and pressure
+fig, ax = plt.subplots(3)
+
+ax[0].plot(df_hourly_mean['tempC'],marker='.', linestyle='-', linewidth=0.5, label='Avg Temp (C) (hourly)')
+ax[0].plot(df_daily_mean['tempC'],marker='.', linestyle='-', linewidth=0.5, label='Avg Temp (C) (daily)')
+
+ax[0].plot(df_hourly_min['tempC'],marker='.', linestyle='-', linewidth=0.5, label='Min Temp (C) (hourly)')
+ax[0].plot(df_daily_min['tempC'],marker='.', linestyle='-', linewidth=0.5, label='Min Temp (C) (daily)')
+
+ax[0].plot(df_hourly_max['tempC'],marker='.', linestyle='-', linewidth=0.5, label='Max Temp (C) (hourly)')
+ax[0].plot(df_daily_max['tempC'],marker='.', linestyle='-', linewidth=0.5, label='Max Temp (C) (daily)')
+
+ax[0].set_title('Temperature (Celcuis) Hourly / Daily ')
+ax[0].set_ylabel('')
+ax[0].legend();
+
+ax[1].plot(df_hourly_mean['p'],marker='.', linestyle='-', linewidth=0.5, label='Avg Pressure (hourly)')
+ax[1].plot(df_daily_mean['p'],marker='.', linestyle='-', linewidth=0.5, label='Avg Pressure (daily)')
+
+ax[1].plot(df_hourly_min['p'],marker='.', linestyle='-', linewidth=0.5, label='Min Pressure (hourly)')
+ax[1].plot(df_daily_min['p'],marker='.', linestyle='-', linewidth=0.5, label='Min Pressure (daily)')
+
+ax[1].plot(df_hourly_max['p'],marker='.', linestyle='-', linewidth=0.5, label='Max Pressure (hourly)')
+ax[1].plot(df_daily_max['p'],marker='.', linestyle='-', linewidth=0.5, label='Max Pressure (daily)')
+
+ax[1].axhline(y=102268.9, color='r', linestyle='-', label="High Pressure")
+ax[1].axhline(y=100914.4, color='b', linestyle='-', label="Low Pressure")
+
+ax[1].set_title('Barometric Air Pressure - Hourly / Daily')
+ax[1].set_ylabel('')
+ax[1].legend();
+
+# hourly air pressure % change
+# show pct_change as directional (signed) to indicate pressure rising/falling
+df_hourly_mean_pct = df_hourly_mean.pct_change()*np.sign(df_hourly_mean.shift(periods=1))
+df_hourly_min_pct = df_hourly_min.pct_change()*np.sign(df_hourly_min.shift(periods=1))
+df_hourly_max_pct = df_hourly_max.pct_change()*np.sign(df_hourly_max.shift(periods=1))
+
+ax[2].plot(df_hourly_mean_pct['p'],marker='.', linestyle='-', linewidth=0.5, label='Avg Pressure (hourly % change)')
+ax[2].plot(df_hourly_min_pct['p'],marker='.', linestyle='-', linewidth=0.5, label='Min Pressure (hourly % change)')
+ax[2].plot(df_hourly_max_pct['p'],marker='.', linestyle='-', linewidth=0.5, label='Max Pressure (hourly % change)')
+
+# filter by date range (48 hour period)
+#ax[2].plot(df_hourly_mean_pct.loc['2020-04-03 00:00':'2020-04-05 00:00']['p'],marker='.', linestyle='-', linewidth=0.5, label='Avg Pressure (hourly % change)')
+#ax[2].plot(df_hourly_min_pct.loc['2020-04-03 00:00':'2020-04-05 00:00']['p'],marker='.', linestyle='-', linewidth=0.5, label='Min Pressure (hourly % change)')
+#ax[2].plot(df_hourly_max_pct.loc['2020-04-03 00:00':'2020-04-05 00:00']['p'],marker='.', linestyle='-', linewidth=0.5, label='Max Pressure (hourly % change)')
+
+ax[2].set_title('Barometric Air Pressure - Hourly % Change ')
+ax[2].set_ylabel('')
+ax[2].legend();
+
+
+plt.show()
+
+
+"""
+
+
+
+# Display metric chart for a time period
+fig, ax = plt.subplots()
+
+ax.plot(df.loc['2020-04-03 12:00':'2020-04-04 12:00', 'p'], linewidth=0.5)
+ax.set_ylabel('Barometric Pressure (Pascals)')
+ax.set_title('Barometer')
+ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %d %H:%M'));
+
+plt.show()
+
+ax.plot(df.loc['2020-04-03 12:00':'2020-04-04 12:00', 'tempC'], linewidth=0.5)
+ax.set_ylabel('Temp (C)')
+ax.set_title('Temperature')
+ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %d %H:%M'));
+
+
+plt.show()
+
+
+fig, axes = plt.subplots(3, 1, figsize=(11, 10), sharex=True)
+
+for name, ax in zip(['p', 'tempC', 'h'], axes):
+    sns.boxplot(data=df, x='Weekday Name', y=name, ax=ax)
+    ax.set_ylabel('Value')
+    ax.set_title(name)
+"""
+
+"""
 
 print df.describe()
 
@@ -108,3 +267,5 @@ ax[3].xaxis.set_major_formatter(mdates.DateFormatter('%b %d %H:%M'))
 ax[3].plot(df['datetime'], df['LDR'])
 
 plt.show()
+
+"""
