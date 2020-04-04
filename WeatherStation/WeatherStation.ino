@@ -30,11 +30,12 @@
 
 const char app_name[12] = "Weather.Station";
 
+// RTC DS3231
 DS3232RTC rtc;
 #define RTC_SDA_PIN 20 // Uno 18
 #define RTC_SCL_PIN 21 // Uno 19
 DateTime dt;
-
+uint32_t ts;
 int rtcInterruptPin = 2;
 volatile int8_t int_flag = 0;
 int alarm_interval = 0; // Interval in mins for repeating alarm
@@ -42,7 +43,6 @@ int alarm_interval = 0; // Interval in mins for repeating alarm
 // SD Card - Data Logger
 File logFile;
 char logFileName[] = "00000000.txt";
-
 const int chipSelect = 53;
 
 // DHT11 Temperature / Humidity
@@ -52,10 +52,9 @@ DHT dht(dht_apin, DHT11);
 
 // BMP180 Barometric Pressure
 Adafruit_BMP085 bmp;
-
 float bmpPressure = 0;
 
-// LDR - Light Dependant Resistor
+// LDR - Light Dependant Resistor (S)A0, VCC, -GND, 
 int ldr_apin = A1;
 int ldr_apin_val = 0;
 const int ldr_daynight_threshold = 300; // day/night level, 300 in range of direct sunlight
@@ -65,12 +64,10 @@ int ldr_adjusted;
 int wSensorPin = A2;
 int wSensorVal = 0;
 
-float h, tc, tf; // humidity, temp c, temp f
+// DHT11 humidity, temp c, temp f
+float h, tc, tf; 
 int h1;
-uint32_t ts;
 
-int led_apin = 9;
-int led_brightness;
 
 boolean lcd_active = 0;
 boolean sd_active = 1; // enable/disable SD Card Data Logging
@@ -321,16 +318,16 @@ void serialiseJSON()
   data["w"] = wSensorVal;
 
 
-  serializeJson(doc, Serial);
-  Serial.println();
+  char json_string[256];
+  serializeJson(doc, json_string);
 
   if (sd_active) {
-    SDCardWrite(doc);
+    SDCardWrite(json_string);
   }
 
 }
 
-void SDCardWrite(DynamicJsonDocument doc)
+void SDCardWrite(char * json_string)
 {
 
   if (!SD.begin()) {
@@ -346,7 +343,10 @@ void SDCardWrite(DynamicJsonDocument doc)
 
   if (logFile) {
 
-    serializeJson(doc, logFile);
+    Serial.println(json_string);
+    logFile.println(json_string);
+    logFile.close();
+
     Serial.println("SD write OK.");
 
   } else {
