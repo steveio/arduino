@@ -3,6 +3,8 @@
 
   Example sketch for an Arduino weather module built with an ATmega2560 microcontroller
 
+  Wake on a configurable schedule (every minute) to read sensor sample data
+
   Hardware includes:
     DS3231 RTC
     DHT11 Temperature & Humidity
@@ -28,17 +30,23 @@
 #include <SPI.h>
 #include <SD.h>
 
-const char app_name[12] = "Weather.Station";
+#include <AlarmSchedule.h>
+#include <avr/sleep.h>
+#include <avr/power.h>
+
 
 // RTC DS3231
 DS3232RTC rtc;
-#define RTC_SDA_PIN 20 // Uno 18
-#define RTC_SCL_PIN 21 // Uno 19
+#define RTC_SDA_PIN 20
+#define RTC_SCL_PIN 21
+#define RTC_INTERRUPT_PIN 2
+
+volatile int8_t interuptState = 0;
+
+AlarmScheduleRTC3232 als;
+
 DateTime dt;
 uint32_t ts;
-int rtcInterruptPin = 2;
-volatile int8_t int_flag = 0;
-int alarm_interval = 0; // Interval in mins for repeating alarm
 
 // SD Card - Data Logger
 File logFile;
@@ -71,6 +79,16 @@ int h1;
 
 boolean lcd_active = 0;
 boolean sd_active = 1; // enable/disable SD Card Data Logging
+
+/**
+ * Schedule RTC Alarm every minute at :00 secs
+ */
+void setAlarm()
+{
+  Serial.println("setAlarm");
+  als.setAlarm( ALM1_MATCH_SECONDS, 0, 0, 0, 0, 0);
+}
+
 
 /**
  * Get dated log filename in format YYYYMMDD.txt
@@ -205,42 +223,35 @@ void setup() {
   DateTime arduino_t = DateTime(__DATE__, __TIME__);
   setInternalClock();
   setRTC(); // sync RTC clock w/ system time
-  //scheduleAlarm();
 
-  Serial.println();
+  pinMode( RTC_INTERRUPT_PIN, INPUT_PULLUP);
+
+  setAlarm();
+  sleep();
+
 }
 
 
 void loop() {
 
   dt = rtc.get();
+  ts = dt.unixtime(); // unix ts for logging
 
-  if (int_flag)
-  {
-    Serial.println("RTC Interupt");
-    Serial.println(rtc.get());
-    int_flag = 0;
-    scheduleRepeatAlarm();
-  }
-  
   char dtm[32];
   sprintf(dtm, "%02d/%02d/%02d %02d:%02d:%02d" , dt.day(),dt.month(),dt.year(),dt.hour(),dt.minute(),dt.second());
   Serial.println(dtm);
 
-  // unix timestamp, for logging
-  ts = dt.unixtime();
+  if (interuptState == 1) // ISR called
+  {
+    interuptState = 0;
 
-  sensorRead();
+    sensorRead();
+    serialiseJSON();
 
-  serialiseJSON();
+    setAlarm();
+    sleep();
+  }
 
-  //if (lcd_active) {
-  //  LCDWrite(dt,tm,tc,h1,ldr_apin_val);
-  //}
-
-  Serial.println("");
-
-  delay(30000);
 }
 
 
@@ -355,93 +366,6 @@ void SDCardWrite(char * json_string)
 
 }
 
-
-/**
- * Examples of Alarm scheduling
- */
-void scheduleAlarm()
-{
-  
-  /*
-   * Alarm Schedule Constants:
-  
-  ALM1_EVERY_SECOND = 0x0F,      // once a second
-  ALM1_MATCH_SECONDS = 0x0E,     // when seconds match
-  ALM1_MATCH_MINUTES = 0x0C,     // match minutes *and* seconds
-  ALM1_MATCH_HOURS = 0x08,       // match hours *and* minutes, seconds
-  ALM1_MATCH_DATE = 0x00,        // match date *and* hours, minutes, seconds
-  ALM1_MATCH_DAY = 0x10,         // match day *and* hours, minutes, seconds
-  ALM2_EVERY_MINUTE = 0x8E,
-  ALM2_MATCH_MINUTES = 0x8C,     // match minutes
-  ALM2_MATCH_HOURS = 0x88,       // match hours *and* minutes
-  ALM2_MATCH_DATE = 0x80,        // match date *and* hours, minutes
-  ALM2_MATCH_DAY = 0x90,         // match day *and* hours, minutes
-  */
-
-  // every second
-  //setAlarmInterupt(ALM1_EVERY_SECOND , 0, 0, 0, 0);
-
-  // seconds match n
-  //setAlarmInterupt(ALM1_MATCH_SECONDS , 30, 0, 0, 0);
-
-  // every <interval> minutes
-  alarm_interval = 2; // every mins
-  setAlarmInterupt(ALM1_MATCH_MINUTES , 0, 30, 0, 0);
-
-  // every hour @ n minutes past
-  //setAlarmInterupt(ALM1_MATCH_MINUTES , 0, 59, 0, 0);
-
-  // Day of week 1-7 is (1 = Monday?)
-
-}
-
-/**
- * If alarm_interval (mins) is specified, schedule a repeat alarm
- */
-void scheduleRepeatAlarm()
-{
-    delay(1000); // required to get accurate minute() rollover value!?
-
-    if (alarm_interval > 0)
-    {
-      int nextInterval = ((minute() + alarm_interval) < 60) ? (minute() + alarm_interval) : 0 + ((minute() + alarm_interval) - 60);
-      Serial.println("Repeat Alarm:");
-      Serial.println(nextInterval);
-      setAlarmInterupt(ALM1_MATCH_MINUTES , 0, nextInterval, 0, 0);
-    }
-}
-
-/**
- * Set DS3132/3232 Alarm Interupt
- * 
- * @param byte seconds 00-59
- * @param byte minutes 00-59
- * @param byte hours 1-12 + AM/PM | 00-23
- * @param byte daydate 1-7
- */
-void setAlarmInterupt(ALARM_TYPES_t alarmType, byte seconds, byte minutes, byte hours, byte daydate)
-{
-  Serial.println("setAlarmInterupt()");
-
-  rtc.squareWave(SQWAVE_NONE);                  // Turns OFF 1Hz Frequency mode on RTC pin SQW
-  rtc.alarm( ALARM_1 );
-  rtc.alarmInterrupt(ALARM_2, false);           
-  rtc.alarmInterrupt(ALARM_1, true);            // Turns on Alarm_1
-  rtc.setAlarm(alarmType , seconds, minutes, hours,daydate);
-
-  pinMode( rtcInterruptPin, INPUT_PULLUP );
-  attachInterrupt(digitalPinToInterrupt(rtcInterruptPin), rtcInterupt, FALLING);
-
-}
-
-/**
- * ISR handler for RTC
- */
-void rtcInterupt()
-{
-  int_flag = 1;
-}
-
 /**
  * Set RTC clock based on system time
  */
@@ -501,4 +425,60 @@ time_t syncProviderRTC()
 {
   DateTime rtc_ts = rtc.get();
   return rtc_ts.unixtime();  
+}
+
+void sleep()
+{
+  Serial.println("sleep()");
+  delay(1000);
+
+  for (int i = 0; i <= 53; i++) {
+    pinMode(i, OUTPUT);
+    digitalWrite(i, LOW);
+  }
+
+  digitalWrite(13, LOW); // turn off internal LED
+
+
+  power_adc_disable();
+  power_spi_disable();
+  power_usart0_disable();
+  power_usart2_disable();
+  power_timer1_disable();
+  power_timer2_disable();
+  power_timer3_disable();
+  power_timer4_disable();
+  power_timer5_disable();
+  power_twi_disable();
+
+  set_sleep_mode (SLEEP_MODE_PWR_DOWN);
+  sleep_enable();
+
+  pinMode(RTC_INTERRUPT_PIN, INPUT_PULLUP);
+  digitalWrite(RTC_INTERRUPT_PIN, HIGH);
+  attachInterrupt(0, wakeUp, LOW);
+  delay(500);
+
+  sleep_mode();
+}
+
+void wakeUp()
+{
+  sleep_disable();
+  detachInterrupt(0);
+
+  power_adc_enable();
+  power_spi_enable();
+  power_usart0_enable();
+  power_usart2_enable();
+  power_timer1_enable();
+  power_timer2_enable();
+  power_timer3_enable();
+  power_timer4_enable();
+  power_timer5_enable();
+  power_twi_enable();
+
+  interuptState = 1;
+
+  digitalWrite(13, HIGH); // turn on internal LED
 }
