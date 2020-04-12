@@ -7,14 +7,18 @@
 # Demonstrates some uses of Python - Pandas, Matplotlib
 #
 
+
 import os
 import json
+import numpy as np
+
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
-import numpy as np
 import pandas as pd
 from datetime import datetime as dt
 import seaborn as sns
+
+from datetime import datetime, timedelta
 
 sns.set(rc={'figure.figsize':(11, 4)})
 
@@ -60,13 +64,14 @@ def load_json_data(filepath, frames, df_stat):
 
 for f in files:
     filename = path+f
-    print filename
+    print(filename)
     df_stat = load_json_data(filename,frames,df_stat)
 
 
-print df_stat
+print(df_stat)
 
 df = pd.concat(frames)
+
 
 df.sort_values(by='ts', ascending=True)
 
@@ -87,40 +92,44 @@ df['Weekday Name'] = df.index.weekday_name
 df['Hour'] = df.index.hour
 
 # display a random sample of 5 rows
-#print df.sample(5, random_state=0)
+#print(df.sample(5, random_state=0))
 
 # display a single day
-#print df.loc['2020-04-03']
+#print(df.loc['2020-04-03'])
 
 # display data for a datetime range
-#print df.loc['2020-04-02 05:00':'2020-04-03 22:00']
+#print(df.loc['2020-04-02 05:00':'2020-04-03 22:00'])
 
 
 # Plot each metric as line chart
 fig, ax = plt.subplots(4)
 
-ax[0].plot(df.loc['2020-04-02 05:00':'2020-04-03 17:00']['tempC'],linewidth=0.5, label='Temp (C)')
+# to locate a specific range
+# df.loc['2020-04-02 05:00':'2020-04-03 17:00']['tempC']
+ax[0].plot(df['tempC'],linewidth=0.5, label='Temp (C)')
 ax[0].set_title('Temp (C)')
 ax[0].set_ylabel('')
 ax[0].legend();
 
-ax[1].plot(df.loc['2020-04-02 05:00':'2020-04-03 17:00']['h'],linewidth=0.5, label='Humidity')
+ax[1].plot(df['h'],linewidth=0.5, label='Humidity')
 ax[1].set_title('Humidity %')
 ax[1].set_ylabel('')
 ax[1].legend();
 
-ax[2].plot(df.loc['2020-04-02 05:00':'2020-04-03 17:00']['p'],linewidth=0.5, label='Pressure (pascals)')
+ax[2].plot(df['p'],linewidth=0.5, label='Pressure (pascals)')
 ax[2].set_title('Barometric Air Pressure')
 ax[2].set_ylabel('')
+ax[2].axhline(y=102268.9, color='r', linestyle='-', label="High Pressure")
+ax[2].axhline(y=100914.4, color='b', linestyle='-', label="Low Pressure")
 ax[2].legend();
 
-ax[3].plot(df.loc['2020-04-02 05:00':'2020-04-03 17:00']['LDR'],linewidth=0.5, label='Light Level (LDR)')
+ax[3].plot(df['LDR'],linewidth=0.5, label='Light Level (LDR)')
 ax[3].set_title('Light Level')
 ax[3].set_ylabel('')
 ax[3].legend();
 
 
-plt.show()
+###plt.show()
 
 
 
@@ -137,11 +146,11 @@ df_daily_max = df[data_columns].resample('D').max()
 df_hourly_min = df[data_columns].resample('H').min()
 df_daily_min = df[data_columns].resample('D').min()
 
-print df_hourly_mean.head(15)
+print(df_hourly_mean.head(15))
 
 # compare rowcounts to see difference in data point counts
-#print(df.shape[0])
-#print(df_hourly_mean.shape[0])
+#print((df.shape[0]))
+#print((df_hourly_mean.shape[0]))
 
 # chart hourly/daily avg, min, max for temperature and pressure
 fig, ax = plt.subplots(3)
@@ -195,11 +204,68 @@ ax[2].set_ylabel('')
 ax[2].legend();
 
 
+###plt.show()
+
+
+# During last interval (48hours) for sample frequency f (3hourly mean) was increase/decrease observed, what was direction, magnitude & rate of change?
+
+
+# resample last 48 hours, 3 hour intervals
+end_dt = datetime.now()
+start_dt  = datetime.now() - timedelta(hours=48)
+
+start_dt = start_dt.strftime("%Y-%m-%d %H:%M:%S")
+end_dt = end_dt.strftime("%Y-%m-%d %H:%M:%S")
+
+
+df_temp_3h_mean = df.loc[start_dt:end_dt]['tempC'].resample('3H').mean()
+df_p_3h_mean = df.loc[start_dt:end_dt]['p'].resample('3H').mean()
+
+df_temp_3h_mean_pct = df_temp_3h_mean.pct_change()*np.sign(df_temp_3h_mean.shift(periods=1))
+df_p_3h_mean_pct = df_p_3h_mean.pct_change()*np.sign(df_p_3h_mean.shift(periods=1))
+
+df_p_3h_mean_pct_2d = df_p_3h_mean_pct.pct_change()*np.sign(df_p_3h_mean_pct.shift(periods=1))
+
+print df_p_3h_mean_pct
+print df_p_3h_mean_pct_2d
+
+
+fig, ax = plt.subplots(4)
+
+### Firstly, show temperature (celcuis) 3 hour mean
+ax[0].plot(df_temp_3h_mean,marker='.', linestyle='-', linewidth=0.5, label='Temp (C) (3 hour mean)')
+ax[0].set_title('Temperature (Celcuis) 3 hour mean')
+ax[0].set_ylabel('')
+ax[0].legend();
+
+### Barometric Pressure 3 hour mean
+ax[1].plot(df_p_3h_mean,marker='.', linestyle='-', linewidth=0.5, label='Air Pressure (3 hour mean)')
+ax[1].set_title('Air Pressure (Pascals) 3 hour mean')
+ax[1].set_ylabel('')
+ax[1].legend();
+ax[1].axhline(y=102268.9, color='r', linestyle='-', label="High Pressure")
+ax[1].axhline(y=100914.4, color='b', linestyle='-', label="Low Pressure")
+
+# Barometric Pressure 3 hour mean, % change
+ax[2].plot(df_p_3h_mean_pct,marker='.', linestyle='-', linewidth=0.5, label='Pressure (3h mean % change)')
+ax[2].set_title('Air Pressure (Pascals) 3 hour mean % change')
+ax[2].set_ylabel('')
+ax[2].legend();
+
+# Barometric Pressure 3 hour mean, % change, 2nd derivative (rate of change)
+ax[3].plot(df_p_3h_mean_pct_2d,marker='.', linestyle='-', linewidth=0.5, label='Pressure (3h mean % change rate)')
+ax[3].set_title('Air Pressure (Pascals) 3 hour mean % change rate')
+ax[3].set_ylabel('')
+ax[3].legend();
+
+
 plt.show()
 
 
 """
 
+# chart level of light for hours of daylight only
+# indicate dawn/dusk (sunrise/senset) based on level change of LDR sensor values
 
 
 # Display metric chart for a time period
@@ -231,7 +297,7 @@ for name, ax in zip(['p', 'tempC', 'h'], axes):
 
 """
 
-print df.describe()
+print(df.describe())
 
 
 fig, ax = plt.subplots(nrows=2, ncols=2)
