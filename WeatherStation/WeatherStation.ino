@@ -15,6 +15,10 @@
     6v 2.0watt 333mA Solar Panel
     TP4056 Battery Charge Controller
     2x Li-ion 3.7v 3600mAh Battery
+
+  Requires:
+    https://github.com/steveio/AlarmSchedule
+    https://github.com/steveio/RTCLib
   
   This example code is in the public domain.
 */
@@ -33,6 +37,12 @@
 #include <AlarmSchedule.h>
 #include <avr/sleep.h>
 #include <avr/power.h>
+
+const long baud_rate = 115200;
+
+// Mega2560 RX1/TX1
+byte rx = 19;
+byte tx = 18;
 
 
 // RTC DS3231
@@ -79,6 +89,7 @@ int h1;
 
 boolean lcd_active = 0;
 boolean sd_active = 1; // enable/disable SD Card Data Logging
+boolean wifi_tx_active = 1; // transmit JSON over software serial to ESP8266
 
 /**
  * Schedule RTC Alarm every minute at :00 secs
@@ -197,11 +208,18 @@ void readBMP180()
 
 void setup() {
 
-  Serial.begin(115200);
+  Serial.begin(baud_rate);
+  Serial1.begin(baud_rate);
+
+  pinMode(rx,INPUT);
+  pinMode(tx,OUTPUT);
+
   delay(1000);
 
   Serial.println("Weather Station: Begin\n");
+  Serial1.println("Arduino Mega2560 Weather Station Begin!");
 
+  
   pinMode(ldr_apin,INPUT);
   pinMode(ldr_apin,INPUT);
 
@@ -225,7 +243,6 @@ void setup() {
   setRTC(); // sync RTC clock w/ system time
 
   pinMode( RTC_INTERRUPT_PIN, INPUT_PULLUP);
-
   setAlarm();
   sleep();
 
@@ -336,7 +353,14 @@ void serialiseJSON()
     SDCardWrite(json_string);
   }
 
+  if (wifi_tx_active) {
+    Serial1.println(json_string);
+    Serial1.println("\n");
+    Serial1.flush();
+  }
+
 }
+
 
 void SDCardWrite(char * json_string)
 {
@@ -481,4 +505,6 @@ void wakeUp()
   interuptState = 1;
 
   digitalWrite(13, HIGH); // turn on internal LED
+
+  Serial1.println(" \n");
 }

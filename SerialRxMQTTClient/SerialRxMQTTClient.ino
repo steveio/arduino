@@ -26,13 +26,14 @@ byte tx = 15; // GPIO 15 / D8
 
 SoftwareSerial s(rx,tx);
 
+const long rx_baud = 115200;
 const int rx_buffer_sz = 128;
 char rx_buff[rx_buffer_sz];
 uint8_t rx_count;
 #define MSG_EOT 0x0A // LF \n 
 
-const char* ssid = "__WIFI_SSID__";
-const char* password = "__WIFI_PASS__";
+const char* ssid = "__APSSID__";
+const char* password = "__PASSWD__";
 
 const char* mqtt_server = "192.168.1.127";
 const char* mqtt_channel_out = "esp8266.out";
@@ -42,7 +43,7 @@ const char* mqtt_channel_in = "esp8266.in";
 WiFiClient espClient;
 PubSubClient client(espClient);
 unsigned long lastMsg = 0;
-#define MSG_BUFFER_SIZE	(128)
+#define MSG_BUFFER_SIZE	(256)
 char msg[MSG_BUFFER_SIZE];
 int value = 0;
 
@@ -110,14 +111,15 @@ void reconnect() {
 
 void setup() {
 
-  Serial.begin(115200);
+  Serial.begin(rx_baud);
 
   delay(100);
 
-  s.begin(115200);
+  s.begin(rx_baud);
   pinMode(rx,INPUT);
   pinMode(tx,OUTPUT);
 
+  pinMode(LED_BUILTIN, OUTPUT);
 
   setup_wifi();
   client.setServer(mqtt_server, 1883);
@@ -134,29 +136,35 @@ void loop() {
   rx_count = 0;
   int b = 0; // EOT break
 
-  while(b == 0)
-  {
-    yield(); // disable Watchdog 
-    while(s.available() >= 1)
-    {
-        char c = s.read();
-        if (c >= 0x20 && c <= 0xFF || c == 0x00)
-        {
-          rx_buff[rx_count++] = c;
-        }
+  yield(); // disable Watchdog 
 
-        if (c == MSG_EOT)
-        {
-          b = 1;
-        }   
-     }
+  while((b == 0) && (s.available() >= 1))
+  {
+    digitalWrite(LED_BUILTIN, LOW);   // Turn the LED on (Note that LOW is the voltage level
+
+    char c = s.read();
+    if (c >= 0x20 && c <= 0xFF || c == 0x00)
+    {
+      rx_buff[rx_count++] = c;
+    }
+
+    if (c == MSG_EOT)
+    {
+      b = 1;
+    }
+    digitalWrite(LED_BUILTIN, HIGH);  // Turn the LED off
   }
 
-  Serial.println(rx_buff);
-  snprintf (msg, MSG_BUFFER_SIZE, "%s", rx_buff);
-  client.publish(mqtt_channel_out, msg);
-  clearRxBuffer(rx_buff);
-
+  if (rx_count >= 1)
+  {
+    digitalWrite(LED_BUILTIN, LOW);
+    Serial.println(rx_buff);
+    snprintf (msg, MSG_BUFFER_SIZE, "%s", rx_buff);
+    client.publish(mqtt_channel_out, msg);
+    clearRxBuffer(rx_buff);
+    digitalWrite(LED_BUILTIN, HIGH);
+    delay(100);
+  }
 }
 
 void clearRxBuffer(char * rx_buffer)
