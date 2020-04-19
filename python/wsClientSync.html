@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>WebSocket demo</title>
+        <style type="text/css">
+            body {
+                font-family: "Courier New", sans-serif;
+                text-align: center;
+            }
+            .buttons {
+                font-size: 4em;
+                display: flex;
+                justify-content: center;
+            }
+            .button, .value {
+                line-height: 1;
+                padding: 2rem;
+                margin: 2rem;
+                border: medium solid;
+                min-height: 1em;
+                min-width: 1em;
+            }
+            .button {
+                cursor: pointer;
+                user-select: none;
+            }
+            .minus {
+                color: red;
+            }
+            .plus {
+                color: green;
+            }
+            .value {
+                min-width: 2em;
+            }
+            .state {
+                font-size: 2em;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="buttons">
+            <div class="minus button">-</div>
+            <div class="value">?</div>
+            <div class="plus button">+</div>
+        </div>
+        <div>
+            <input class="enabled" id="angle" type="range" min="0" max="180" step="1" oninput="sendRGB();" value="0">
+        </div>
+        <div class="state">
+            <span class="users">?</span> online
+        </div>
+        <script>
+            var minus = document.querySelector('.minus'),
+                plus = document.querySelector('.plus'),
+                value = document.querySelector('.value'),
+                users = document.querySelector('.users'),
+                websocket = new WebSocket("ws://192.168.1.127:6789/");
+            minus.onclick = function (event) {
+                websocket.send(JSON.stringify({action: 'minus'}));
+            }
+            plus.onclick = function (event) {
+                websocket.send(JSON.stringify({action: 'plus'}));
+            }
+            angle.oninput = function (event) {
+              var deg = document.getElementById('angle').value; //** 2 / 180;
+              console.log(deg);
+              websocket.send(JSON.stringify({action: 'set',value: deg}));
+            }
+            websocket.onmessage = function (event) {
+                data = JSON.parse(event.data);
+                switch (data.type) {
+                    case 'state':
+                        value.textContent = data.value;
+                        break;
+                    case 'users':
+                        users.textContent = (
+                            data.count.toString() + " user" +
+                            (data.count == 1 ? "" : "s"));
+                        break;
+                    default:
+                        console.error(
+                            "unsupported event", data);
+                }
+            };
+        </script>
+    </body>
+</html>
