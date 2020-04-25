@@ -163,7 +163,7 @@
                       let arrayBuffer = await promise;
 
                       // v[0] = cmd, v[4] = value
-                      var v = new Int8Array(arrayBuffer);
+                      var v = new Uint8Array(arrayBuffer);
                       console.log(v[0] + " " + v[4]);
 
                       // update UI
