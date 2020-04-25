@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>WebSocket demo</title>
+        <style type="text/css">
+            body {
+                font-family: "Courier New", sans-serif;
+                text-align: center;
+            }
+            .gauge {
+                width: 400px;
+                height: 400px;
+                display: flex;
+                justify-content: center;
+            }
+
+            .buttons {
+                font-size: 4em;
+                display: flex;
+                justify-content: center;
+            }
+            .button, .value {
+                line-height: 1;
+                padding: 2rem;
+                margin: 2rem;
+                border: medium solid;
+                min-height: 1em;
+                min-width: 1em;
+            }
+            .button {
+                cursor: pointer;
+                user-select: none;
+            }
+            .minus {
+                color: red;
+            }
+            .plus {
+                color: green;
+            }
+            .value {
+                min-width: 2em;
+            }
+            .state {
+                font-size: 2em;
+            }
+        </style>
+        <link href="ResponsiveGauge.css" type="text/css" rel="stylesheet" />
+        <script type="text/javascript" src="//cdn.jsdelivr.net/d3js/3.5.16/d3.min.js"></script>
+	      <script type="text/javascript" src="//cdnjs.cloudflare.com/ajax/libs/numbro/1.7.1/numbro.min.js"></script>
+        <script src="ResponsiveGauge.js"></script>
+    </head>
+    <body>
+        <div class="gauge">
+          <span id="radial-gauge"></span>
+        </div>
+
+        <div class="buttons">
+            <div class="minus button">-</div>
+            <div class="value">?</div>
+            <div class="plus button">+</div>
+        </div>
+        <div>
+            <input class="enabled" id="angleSlider" type="range" min="0" max="180" step="1" oninput="" value="90">
+        </div>
+        <div class="state">
+            <span class="users">?</span> connected
+        </div>
+        <script>
+
+            var gauges = [];
+            // voltage
+      			var gaugeConfig = {
+      				ring : {
+      					minAngle : -90,
+      					maxAngle : 90,
+      					colors : [ '#E14C4C', '#FFA3AC', '#FFE4E4', '#FFF', '#FFF' ],
+      					border : true
+      				},
+      				data : {
+      					min : 0,
+      					max : 180,
+      					value : 90
+      				},
+      				labels : {
+      					number : 4
+      				},
+      				value : {
+      					show : false,
+      					decimalsMax : 1,
+      					unit : 'volts'
+      				}
+      			};
+      			gauges.push({
+      				gauge : ResponsiveGauge('#radial-gauge', gaugeConfig),
+      				config : gaugeConfig
+      			});
+
+            // parameters for config display
+      			var tabSize = 4;
+      			var tab = Array.apply(null, Array(tabSize)).join(' ');
+
+      			/**
+      			 *  Transform a formatter function to a string
+      			 */
+      			function formatterToString(func) {
+      				var source = func['formatter'];
+      				if (source) {
+      					source = source.toSource();
+      					source = source.replace(/\n/g, '<br>'); // remove new lines
+      					source = source.replace(/\t/g, tab); // remove tabulations
+      					func['formatter'] = source;
+      				}
+      			}
+
+      			// display gauges options on over
+      			gauges.forEach(function(g) {
+      				formatterToString(g.config.labels);
+      				formatterToString(g.config.value);
+      				var config = JSON.stringify(g.config, null, tabSize);
+      				config = config.replace(/"([^:,\{\}']*)":/g, '$1:');
+
+      				var container = g.gauge.container;
+
+      			});
+
+
+            var minus = document.querySelector('.minus'),
+                plus = document.querySelector('.plus'),
+                value = document.querySelector('.value'),
+                users = document.querySelector('.users'),
+
+            websocket = new WebSocket("ws://192.168.1.127:6789/");
+
+            var angleSlider = document.getElementById('angleSlider');
+            minus.onclick = function (event) {
+                websocket.send(JSON.stringify({action: 'minus'}));
+            }
+            plus.onclick = function (event) {
+                websocket.send(JSON.stringify({action: 'plus'}));
+            }
+            angleSlider.oninput = function (event) {
+              var angle = angleSlider.value; //** 2 / 180;
+              websocket.send(JSON.stringify({action: 'set',value: angle}));
+              value.textContent = angle;
+            }
+
+            websocket.onmessage = function (event) {
+                //console.log(event);
+                if (event.data instanceof Blob)  // Binary Frame
+                {
+                  async function readBinaryData(blob) {
+                      let promise = new Promise((res, rej) => {
+
+                        var fileReader = new FileReader();
+                        fileReader.onload = function(event) {
+                            var arrayBuffer = event.target.result;
+                            res(arrayBuffer);
+                        };
+                        fileReader.readAsArrayBuffer(blob);
+                      });
+
+                      // wait until the promise returns us a value
+                      let arrayBuffer = await promise;
+
+                      // v[0] = cmd, v[4] = value
+                      var v = new Int8Array(arrayBuffer);
+                      console.log(v[0] + " " + v[4]);
+
+                      // update UI
+                      value.textContent = v[4];
+                      angleSlider.value = v[4];
+                      gauges.forEach(function(g) {
+                          g.gauge.update(v[4]);
+                      });
+                  };
+
+                  readBinaryData(event.data);
+
+                } else { // String (JSON) Frame
+
+                  try {
+                    data = JSON.parse(event.data);
+
+                    switch (data.type) {
+                        case 'state':
+                            value.textContent = data.value;
+                            break;
+                        case 'users':
+                            users.textContent = (
+                                data.count.toString() + " client" +
+                                (data.count == 1 ? "" : "s"));
+                            break;
+                        default:
+                            console.error(
+                                "unsupported event", data);
+                    }
+
+                  } catch(e) {
+                      console.log("Invalid JSON:"+event.toString());
+                  }
+               }
+            };
+        </script>
+    </body>
+</html>
