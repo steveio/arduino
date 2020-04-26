@@ -7,6 +7,10 @@
                 font-family: "Courier New", sans-serif;
                 text-align: center;
             }
+            .container {
+              width: 100%;
+              text-align: center;
+            }
             .gauge {
                 width: 400px;
                 height: 400px;
@@ -43,6 +47,49 @@
             .state {
                 font-size: 2em;
             }
+
+            .slidecontainer {
+              display: inline-block;
+              width: 600px; /* Width of the outside container */
+              margin: 0px 0px 20px 0px;
+            }
+
+            /* The slider itself */
+            .slider {
+              -webkit-appearance: none;  /* Override default CSS styles */
+              appearance: none;
+              width: 100%; /* Full-width */
+              height: 25px; /* Specified height */
+              background: #d3d3d3; /* Grey background */
+              outline: none; /* Remove outline */
+              opacity: 0.7; /* Set transparency (for mouse-over effects on hover) */
+              -webkit-transition: .2s; /* 0.2 seconds transition on hover */
+              transition: opacity .2s;
+            }
+
+            /* Mouse-over effects */
+            .slider:hover {
+              opacity: 1; /* Fully shown on mouse-over */
+            }
+
+            /* The slider handle (use -webkit- (Chrome, Opera, Safari, Edge) and -moz- (Firefox) to override default look) */
+            .slider::-webkit-slider-thumb {
+              -webkit-appearance: none; /* Override default look */
+              appearance: none;
+              width: 25px; /* Set a specific slider handle width */
+              height: 25px; /* Slider handle height */
+              border-radius: 50%;
+              background: red;
+              cursor: pointer; /* Cursor on hover */
+            }
+
+            .slider::-moz-range-thumb {
+              width: 25px; /* Set a specific slider handle width */
+              height: 25px; /* Slider handle height */
+              background: red;
+              cursor: pointer; /* Cursor on hover */
+            }
+
         </style>
         <link href="ResponsiveGauge.css" type="text/css" rel="stylesheet" />
         <script type="text/javascript" src="//cdn.jsdelivr.net/d3js/3.5.16/d3.min.js"></script>
@@ -50,6 +97,7 @@
         <script src="ResponsiveGauge.js"></script>
     </head>
     <body>
+      <div class="container">
         <div class="gauge">
           <span id="radial-gauge"></span>
         </div>
@@ -59,12 +107,13 @@
             <div class="value">?</div>
             <div class="plus button">+</div>
         </div>
-        <div>
-            <input class="enabled" id="angleSlider" type="range" min="0" max="180" step="1" oninput="" value="90">
+        <div class="slidecontainer">
+            <input class="slider" id="angleSlider" type="range" min="0" max="180" step="1" oninput="" value="90">
         </div>
         <div class="state">
             <span class="users">?</span> connected
         </div>
+      </div>
         <script>
 
             var gauges = [];
@@ -164,7 +213,7 @@
 
                       // v[0] = cmd, v[4] = value
                       var v = new Uint8Array(arrayBuffer);
-                      console.log(v[0] + " " + v[4]);
+                      //console.log(v[0] + " " + v[4]);
 
                       // update UI
                       value.textContent = v[4];
