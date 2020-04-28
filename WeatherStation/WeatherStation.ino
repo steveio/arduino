@@ -1,7 +1,7 @@
 /**
   Weather Station
 
-  Example sketch for an Arduino weather module built with an ATmega2560 microcontroller
+  Example sketch for an Arduino weather station built with an ATmega2560 microcontroller
 
   Wake on a configurable schedule (every minute) to read sensor sample data
 
@@ -16,6 +16,8 @@
     TP4056 Battery Charge Controller
     2x Li-ion 3.7v 3600mAh Battery
 
+  Includes Serial IO to an ESP8266 for cmd input and data reporting
+  
   Requires:
     https://github.com/steveio/AlarmSchedule
     https://github.com/steveio/RTCLib
@@ -38,11 +40,41 @@
 #include <avr/sleep.h>
 #include <avr/power.h>
 
+
+
 const long baud_rate = 115200;
 
-// Mega2560 RX1/TX1
-byte rx = 19;
-byte tx = 18;
+
+// Serial CMD codes
+#define CMD_READ_SENSOR 1001  // request sensor read
+#define CMD_SENS_FREQ  1002   // set sensor read interval 
+#define CMD_SEND_SSD 1003     // request sd card data
+#define CMD_SLEEP 1005        // sleep
+#define CMD_WAKEUP 1006       // wakeup
+#define CMD_LED_ON 1010       // toggle internal LED
+#define CMD_LED_OFF 1011      // toggle internal LED
+#define CMD_SET_LCD 1012      // toggle LCD Display
+#define CMD_SET_SDCARD 1013   // toggle SD Card Data logging
+#define CMD_SET_WIFI_TX 1014  // toggle Wifi JSON logging
+
+
+
+// Serial Messaging IO
+#define RX_INTERRUPT_PIN 3
+
+const int tx_buffer_sz = 256;
+char tx_buff[tx_buffer_sz];
+const long tx_baud = 115200;
+
+const int rx_buffer_sz = 256;
+char rx_buffer[rx_buffer_sz];
+uint8_t rx_count;
+#define MSG_EOT 0x0A // LF \n 
+#define MSG_CMD 0x40 // @ cmd start 
+
+// Mega2560 RX2/TX2
+byte rxPin = 16; // 19;
+byte txPin = 17; // 18;
 
 
 // RTC DS3231
@@ -51,7 +83,9 @@ DS3232RTC rtc;
 #define RTC_SCL_PIN 21
 #define RTC_INTERRUPT_PIN 2
 
-volatile int8_t interuptState = 0;
+// interupt flags
+volatile int8_t interuptState = 0; // RTC alarm
+volatile int8_t serialRxInteruptState = 0; // Serial RX
 
 AlarmScheduleRTC3232 als;
 
@@ -65,17 +99,17 @@ const int chipSelect = 53;
 
 // DHT11 Temperature / Humidity
 // Wiring (S)ignal | VCC | GND
-#define dht_apin A0
+#define dht_apin 10
 DHT dht(dht_apin, DHT11);
 
 // BMP180 Barometric Pressure
 Adafruit_BMP085 bmp;
-float bmpPressure = 0;
+float bmpPressure, bmpTempC, bmpAlt = 0;
 
 // LDR - Light Dependant Resistor (S)A0, VCC, -GND, 
 int ldr_apin = A1;
 int ldr_apin_val = 0;
-const int ldr_daynight_threshold = 300; // day/night level, 300 in range of direct sunlight
+const int ldr_daynight_threshold = 300; // day/night level
 int ldr_adjusted;
 
 // water / moisture sensor
@@ -90,6 +124,22 @@ int h1;
 boolean lcd_active = 0;
 boolean sd_active = 1; // enable/disable SD Card Data Logging
 boolean wifi_tx_active = 1; // transmit JSON over software serial to ESP8266
+
+
+void setLCD(boolean b)
+{
+  lcd_active = b;
+}
+
+void setSDCard(boolean b)
+{
+  sd_active = b;
+}
+
+void setWifiTx(boolean b)
+{
+  wifi_tx_active = b;
+}
 
 /**
  * Schedule RTC Alarm every minute at :00 secs
@@ -158,7 +208,7 @@ void readDHT11()
   Serial.println("Humidity:");
   Serial.println(h1);
   Serial.println("Temperature (celsuis):");
-  Serial.println(tc,1);
+  Serial.println(tc);
   Serial.println("Temperature (fahrenheit):");
   Serial.println(tf);
   
@@ -170,7 +220,8 @@ void readBMP180()
     Serial.println("BMP180: Air Pressure ");
 
     Serial.print("Temperature = ");
-    Serial.print(bmp.readTemperature());
+    bmpTempC = bmp.readTemperature();
+    Serial.print(bmpTempC);
     Serial.println(" *C");
 
     bmpPressure = bmp.readPressure(); 
@@ -199,7 +250,9 @@ void readBMP180()
     Serial.println(" Pa");
 
     Serial.print("Real altitude = ");
-    Serial.print(bmp.readAltitude(101500));
+    //Serial.print(bmp.readAltitude(101501));
+    bmpAlt = bmp.readAltitude(bmpPressure+60);
+    Serial.print(bmpAlt);
     Serial.println(" meters");
     
     Serial.println();
@@ -211,15 +264,16 @@ void setup() {
   Serial.begin(baud_rate);
   Serial1.begin(baud_rate);
 
-  pinMode(rx,INPUT);
-  pinMode(tx,OUTPUT);
+  pinMode(LED_BUILTIN, OUTPUT);
+
+  pinMode(rxPin,INPUT);
+  pinMode(txPin,OUTPUT);
 
   delay(1000);
 
   Serial.println("Weather Station: Begin\n");
   Serial1.println("Arduino Mega2560 Weather Station Begin!");
 
-  
   pinMode(ldr_apin,INPUT);
   pinMode(ldr_apin,INPUT);
 
@@ -245,7 +299,6 @@ void setup() {
   pinMode( RTC_INTERRUPT_PIN, INPUT_PULLUP);
   setAlarm();
   sleep();
-
 }
 
 
@@ -256,10 +309,20 @@ void loop() {
 
   char dtm[32];
   sprintf(dtm, "%02d/%02d/%02d %02d:%02d:%02d" , dt.day(),dt.month(),dt.year(),dt.hour(),dt.minute(),dt.second());
-  Serial.println(dtm);
+
+  if (serialRxInteruptState == 1)
+  {
+    Serial.println("ISR Serial RX");
+    detachInterrupt(digitalPinToInterrupt(RX_INTERRUPT_PIN));
+    serialRxInteruptState = 0;
+    delay(200);    
+  }
+  readSerialInput();
 
   if (interuptState == 1) // ISR called
   {
+    Serial.println("ISR RTC Alarm");
+    Serial.println(dtm);
     interuptState = 0;
 
     sensorRead();
@@ -343,20 +406,20 @@ void serialiseJSON()
   data["h"] = h;
   data["LDR"] = ldr_apin_val;
   data["p"] = bmpPressure;
-  data["w"] = wSensorVal;
-
+  data["tc2"] = bmpTempC;
+  data["a"] = bmpAlt;
 
   char json_string[256];
   serializeJson(doc, json_string);
-
-  if (sd_active) {
-    SDCardWrite(json_string);
-  }
 
   if (wifi_tx_active) {
     Serial1.println(json_string);
     Serial1.println("\n");
     Serial1.flush();
+  }
+
+  if (sd_active) {
+    SDCardWrite(json_string);
   }
 
 }
@@ -389,6 +452,133 @@ void SDCardWrite(char * json_string)
   }
 
 }
+
+
+/**
+ * Read Char data from Serial input
+ */
+void readSerialInput()
+{
+  int rxMsgId=0;
+
+  // Serial RX Handler
+  int b = 0; // EOT break
+  rx_count = 0;
+  yield(); // disable Watchdog 
+
+  while((b == 0) && (Serial1.available() >= 1))
+  {
+    char c = Serial1.read();
+    if (c >= 0x20 && c <= 0xFF)
+    {
+      Serial.print(c,HEX);
+      rx_buffer[rx_count++] = c;
+    }
+
+    if (c == MSG_EOT || (rx_count == rx_buffer_sz))
+    {
+      b = 1;
+    }
+  }
+
+  if (rx_count >= 1)
+  {
+    rxMsgId++;
+    Serial.println("Serial RX Message: ");
+    Serial.println(rx_buffer);
+
+    processCmd(rx_buffer);
+    clearRxBuffer(rx_buffer);
+  }
+
+}
+
+
+void clearRxBuffer(char * rx_buffer)
+{
+  for(int i=0; i<rx_buffer_sz; i++)
+  {
+    rx_buffer[i] = '\0';
+  }
+}
+
+
+
+/**
+ * JSON msg command processor - 
+ * Extract cmd and data values from JSON format msg
+ * Message length = 256 bytes
+ */
+void processCmd(char * rx_buffer)
+{
+
+  StaticJsonDocument<rx_buffer_sz> doc;
+  deserializeJson(doc,rx_buffer);
+
+  Serial.println("JSON: ");
+  serializeJson(doc, Serial);
+
+  Serial.println(" ");
+  
+  //const char* ccmd = doc["cmd"];
+  int cmd = atoi(doc["cmd"]);
+  const char* data = doc["d"];
+
+  Serial.print("Cmd: ");
+  Serial.println(cmd);
+  Serial.print("Data: ");
+  Serial.println(data);
+
+  switch(cmd)
+  {
+    case CMD_READ_SENSOR :
+        Serial.println("Cmd: Read Sensor");
+        sensorRead();
+        serialiseJSON();
+        break;
+    case CMD_SEND_SSD :
+        Serial.println("Cmd: Send SSD data");
+        break;
+    case CMD_SENS_FREQ :
+        Serial.print("Cmd: Set Sample Freq");
+        Serial.println(data);
+        break;
+    case CMD_SLEEP :
+        Serial.print("Cmd: Sleep");
+        setAlarm();
+        sleep();
+        break;
+    case CMD_WAKEUP :
+        Serial.print("Cmd: WakeUp");
+        wakeUp();
+        break;
+    case CMD_LED_ON :
+        Serial.print("Cmd: LED ON");
+        digitalWrite(LED_BUILTIN, HIGH);
+        break;
+    case CMD_LED_OFF :
+        Serial.print("Cmd: LED OFF");
+        digitalWrite(LED_BUILTIN, LOW);
+        break;
+    case CMD_SET_LCD :
+        Serial.print("Cmd: SET LCD");
+        setLCD((boolean)data);
+        break;
+    case CMD_SET_SDCARD :
+        Serial.print("Cmd: SET SD Card Logging");
+        setSDCard((boolean)data);
+        break;
+    case CMD_SET_WIFI_TX :
+        Serial.print("Cmd: SET WIFI TX");
+        setWifiTx((boolean)data);
+        break;
+
+    default :
+        Serial.println("Cmd: Invalid CMD");
+  }
+
+}
+
 
 /**
  * Set RTC clock based on system time
@@ -480,10 +670,26 @@ void sleep()
 
   pinMode(RTC_INTERRUPT_PIN, INPUT_PULLUP);
   digitalWrite(RTC_INTERRUPT_PIN, HIGH);
-  attachInterrupt(0, wakeUp, LOW);
+  attachInterrupt(0, wakeUpRTC, LOW);
+
+  pinMode(RX_INTERRUPT_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(RX_INTERRUPT_PIN), wakeUpSerialRx, LOW);
+
   delay(500);
 
   sleep_mode();
+}
+
+void wakeUpRTC()
+{
+  wakeUp();
+  interuptState = 1;
+}
+
+void wakeUpSerialRx()
+{
+  wakeUp();
+  serialRxInteruptState = 1;
 }
 
 void wakeUp()
@@ -501,8 +707,6 @@ void wakeUp()
   power_timer4_enable();
   power_timer5_enable();
   power_twi_enable();
-
-  interuptState = 1;
 
   digitalWrite(13, HIGH); // turn on internal LED
 

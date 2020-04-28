@@ -23,17 +23,18 @@
 
 byte rx = 13; // GPIO 13 / D7
 byte tx = 15; // GPIO 15 / D8
+byte interuptPin = 12;
 
 SoftwareSerial s(rx,tx);
 
-const long rx_baud = 115200;
+const long baud_rate = 115200;
 const int rx_buffer_sz = 128;
 char rx_buff[rx_buffer_sz];
 uint8_t rx_count;
 #define MSG_EOT 0x0A // LF \n 
 
-const char* ssid = "__APSSID__";
-const char* password = "__PASSWD__";
+const char* ssid = "TALKTALK1F2294";
+const char* password = "R7EJNAK7";
 
 const char* mqtt_server = "192.168.1.127";
 const char* mqtt_channel_out = "esp8266.out";
@@ -70,20 +71,27 @@ void setup_wifi() {
 }
 
 void callback(char* topic, byte* payload, unsigned int length) {
-  Serial.print("Message arrived [");
+
+  // display & relay message to rs232 serial
+  digitalWrite(BUILTIN_LED, LOW);   // Turn the LED on (Note that LOW is the voltage level
+
+  // wake up Arduino Mega
+  digitalWrite(interuptPin, LOW);
+  delay(100);
+
   Serial.print(topic);
   Serial.print("] ");
   for (int i = 0; i < length; i++) {
     Serial.print((char)payload[i]);
+    s.print((char)payload[i]);
   }
   Serial.println();
+  s.println("\n");
 
-  // Switch on the LED if an 1 was received as first character
-  if ((char)payload[0] == '1') {
-    digitalWrite(BUILTIN_LED, LOW);   // Turn the LED on (Note that LOW is the voltage level
-  } else {
-    digitalWrite(BUILTIN_LED, HIGH);  // Turn the LED off by making the voltage HIGH
-  }
+  digitalWrite(interuptPin, HIGH);
+  delay(500);
+
+  digitalWrite(BUILTIN_LED, HIGH);  // Turn the LED off by making the voltage HIGH
 
 }
 
@@ -111,13 +119,15 @@ void reconnect() {
 
 void setup() {
 
-  Serial.begin(rx_baud);
+  Serial.begin(baud_rate);
 
   delay(100);
 
-  s.begin(rx_baud);
+  s.begin(baud_rate);
   pinMode(rx,INPUT);
   pinMode(tx,OUTPUT);
+
+  pinMode(interuptPin,OUTPUT);
 
   pinMode(LED_BUILTIN, OUTPUT);
 
