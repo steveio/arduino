@@ -51,30 +51,12 @@ const long baud_rate = 115200;
 #define CMD_SEND_SSD 1003     // request sd card data
 #define CMD_SLEEP 1005        // sleep
 #define CMD_WAKEUP 1006       // wakeup
+#define CMD_NTP_SYNC 1007     // sync RTC w/ NTP time
 #define CMD_LED_ON 1010       // toggle internal LED
 #define CMD_LED_OFF 1011      // toggle internal LED
 #define CMD_SET_LCD 1012      // toggle LCD Display
 #define CMD_SET_SDCARD 1013   // toggle SD Card Data logging
 #define CMD_SET_WIFI_TX 1014  // toggle Wifi JSON logging
-
-
-
-// Serial Messaging IO
-#define RX_INTERRUPT_PIN 3
-
-const int tx_buffer_sz = 256;
-char tx_buff[tx_buffer_sz];
-const long tx_baud = 115200;
-
-const int rx_buffer_sz = 256;
-char rx_buffer[rx_buffer_sz];
-uint8_t rx_count;
-#define MSG_EOT 0x0A // LF \n 
-#define MSG_CMD 0x40 // @ cmd start 
-
-// Mega2560 RX2/TX2
-byte rxPin = 16; // 19;
-byte txPin = 17; // 18;
 
 
 // RTC DS3231
@@ -88,6 +70,26 @@ volatile int8_t interuptState = 0; // RTC alarm
 volatile int8_t serialRxInteruptState = 0; // Serial RX
 
 AlarmScheduleRTC3232 als;
+
+
+
+// Serial Messaging IO INT2 / RX1 19
+#define RX_INTERRUPT_PIN 19
+
+const int tx_buffer_sz = 256;
+char tx_buff[tx_buffer_sz];
+const long tx_baud = 115200;
+
+const int rx_buffer_sz = 256;
+char rx_buffer[rx_buffer_sz];
+uint8_t rx_count;
+#define MSG_EOT 0x0A // LF \n 
+#define MSG_CMD 0x40 // @ cmd start 
+
+// Mega2560 RX1/TX1
+byte rxPin = 19;
+byte txPin = 18;
+
 
 DateTime dt;
 uint32_t ts;
@@ -147,7 +149,7 @@ void setWifiTx(boolean b)
 void setAlarm()
 {
   Serial.println("setAlarm");
-  als.setAlarm( ALM1_MATCH_SECONDS, 0, 0, 0, 0, 0);
+  als.setAlarm( ALM1_MATCH_SECONDS, 30, 0, 0, 0, 0);
 }
 
 
@@ -296,7 +298,10 @@ void setup() {
   setInternalClock();
   setRTC(); // sync RTC clock w/ system time
 
+  sensorRead();
+
   pinMode( RTC_INTERRUPT_PIN, INPUT_PULLUP);
+  pinMode( RX_INTERRUPT_PIN, INPUT_PULLUP);
   setAlarm();
   sleep();
 }
@@ -313,9 +318,7 @@ void loop() {
   if (serialRxInteruptState == 1)
   {
     Serial.println("ISR Serial RX");
-    detachInterrupt(digitalPinToInterrupt(RX_INTERRUPT_PIN));
     serialRxInteruptState = 0;
-    delay(200);    
   }
   readSerialInput();
 
@@ -552,6 +555,14 @@ void processCmd(char * rx_buffer)
         Serial.print("Cmd: WakeUp");
         wakeUp();
         break;
+    case CMD_NTP_SYNC :
+        Serial.print("Cmd: NTP Sync");
+        unsigned long epochTime = (unsigned long)doc["d"];
+        rtc.set(epochTime);
+        Serial.println("RTC unixtime()");
+        DateTime rtc_t = rtc.get();
+        Serial.println(rtc_t.unixtime());
+        break;
     case CMD_LED_ON :
         Serial.print("Cmd: LED ON");
         digitalWrite(LED_BUILTIN, HIGH);
@@ -670,32 +681,34 @@ void sleep()
 
   pinMode(RTC_INTERRUPT_PIN, INPUT_PULLUP);
   digitalWrite(RTC_INTERRUPT_PIN, HIGH);
-  attachInterrupt(0, wakeUpRTC, LOW);
+  attachInterrupt(0, wakeUpRTCAlarm, LOW);
 
   pinMode(RX_INTERRUPT_PIN, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(RX_INTERRUPT_PIN), wakeUpSerialRx, LOW);
+  attachInterrupt(1, wakeUpSerialRx, CHANGE);
 
   delay(500);
 
   sleep_mode();
 }
 
-void wakeUpRTC()
+
+void wakeUpRTCAlarm()
 {
   wakeUp();
+  detachInterrupt(0);
   interuptState = 1;
 }
 
 void wakeUpSerialRx()
 {
   wakeUp();
+  detachInterrupt(1);
   serialRxInteruptState = 1;
 }
 
 void wakeUp()
 {
   sleep_disable();
-  detachInterrupt(0);
 
   power_adc_enable();
   power_spi_enable();
