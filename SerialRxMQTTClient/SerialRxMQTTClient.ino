@@ -16,14 +16,25 @@
 
 */
 
-#include <SoftwareSerial.h>
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
+#include <SoftwareSerial.h>
+
+#include <NTPClient.h>
+#include <WiFiUdp.h>
+#include <Time.h>
+
+// Define NTP Client to get time
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP, "pool.ntp.org");
+
+String weekDays[7]={"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
+String months[12]={"January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"};
 
 
+// Serial IO
 byte rx = 13; // GPIO 13 / D7
 byte tx = 15; // GPIO 15 / D8
-byte interuptPin = 12;
 
 SoftwareSerial s(rx,tx);
 
@@ -40,7 +51,7 @@ const char* mqtt_server = "192.168.1.127";
 const char* mqtt_channel_out = "esp8266.out";
 const char* mqtt_channel_in = "esp8266.in";
 
-
+// WIFI 
 WiFiClient espClient;
 PubSubClient client(espClient);
 unsigned long lastMsg = 0;
@@ -76,8 +87,9 @@ void callback(char* topic, byte* payload, unsigned int length) {
   digitalWrite(BUILTIN_LED, LOW);   // Turn the LED on (Note that LOW is the voltage level
 
   // wake up Arduino Mega
-  digitalWrite(interuptPin, LOW);
-  delay(100);
+  s.print(0x0d);
+  s.print(0x0d);
+  delay(20);
 
   Serial.print(topic);
   Serial.print("] ");
@@ -88,11 +100,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
   Serial.println();
   s.println("\n");
 
-  digitalWrite(interuptPin, HIGH);
-  delay(500);
-
   digitalWrite(BUILTIN_LED, HIGH);  // Turn the LED off by making the voltage HIGH
-
 }
 
 void reconnect() {
@@ -117,23 +125,89 @@ void reconnect() {
   }
 }
 
+
+int dstOffset (unsigned long unixTime)
+{
+  //Receives unix epoch time and returns seconds of offset for local DST
+  //Valid thru 2099 for US only, Calculations from "http://www.webexhibits.org/daylightsaving/i.html"
+  //Code idea from jm_wsb @ "http://forum.arduino.cc/index.php/topic,40286.0.html"
+  //Get epoch times @ "http://www.epochconverter.com/" for testing
+  //DST update wont be reflected until the next time sync
+  time_t t = unixTime;
+  // last sunday of march
+  int beginDSTDay=  (31 - (5* year() /4 + 4) % 7); // EU / UK
+  // int beginDSTDay = (14 - (1 + year(t) * 5 / 4) % 7);  // US 
+  int beginDSTMonth=3;
+
+  //last sunday of october
+  int endDSTDay= (31 - (5 * year() /4 + 1) % 7); // EU / UK
+  // int endDSTDay = (7 - (1 + year(t) * 5 / 4) % 7); // US 
+  int endDSTMonth=11;
+  
+  if (((month(t) > beginDSTMonth) && (month(t) < endDSTMonth))
+    || ((month(t) == beginDSTMonth) && (day(t) > beginDSTDay))
+    || ((month(t) == beginDSTMonth) && (day(t) == beginDSTDay) && (hour(t) >= 2))
+    || ((month(t) == endDSTMonth) && (day(t) < endDSTDay))
+    || ((month(t) == endDSTMonth) && (day(t) == endDSTDay) && (hour(t) < 1)))
+    return (3600);  //Add back in one hours worth of seconds - DST in effect
+  else
+    return (0);  //NonDST
+}
+
+void ntpSync()
+{
+  // Initialize a NTPClient to get time
+  timeClient.begin();
+
+  timeClient.update();
+
+  unsigned long epochTime = timeClient.getEpochTime();
+  Serial.print("Epoch Time: ");
+  Serial.println(epochTime);
+
+  int dstOffsetSecs = dstOffset(epochTime);
+  timeClient.setTimeOffset(dstOffsetSecs);
+
+  Serial.print("DST Offset (secs): ");
+  Serial.println(dstOffsetSecs);
+
+}
+
+// transmit serial JSON NTP time sync command
+void sendSerialTimeSyncCmd()
+{
+
+  const int tx_buffer_sz = 64;
+  char tx_buffer[tx_buffer_sz];
+
+  sprintf(tx_buffer, "{\"cmd\":\"1007\",\"d\":\"%u\"}", timeClient.getEpochTime());
+
+  Serial.println("NTP Sync Cmd: ");
+  Serial.println(tx_buffer);
+
+  callback((char*)mqtt_channel_in, (byte*)tx_buffer, tx_buffer_sz);
+}
+
+
 void setup() {
 
   Serial.begin(baud_rate);
 
   delay(100);
 
-  s.begin(baud_rate);
   pinMode(rx,INPUT);
   pinMode(tx,OUTPUT);
 
-  pinMode(interuptPin,OUTPUT);
+  s.begin(baud_rate);
 
   pinMode(LED_BUILTIN, OUTPUT);
 
   setup_wifi();
   client.setServer(mqtt_server, 1883);
   client.setCallback(callback);
+
+  ntpSync();
+  sendSerialTimeSyncCmd();
 }
 
 void loop() {
@@ -142,6 +216,7 @@ void loop() {
     reconnect();
   }
   client.loop();
+
 
   rx_count = 0;
   int b = 0; // EOT break
@@ -175,6 +250,7 @@ void loop() {
     digitalWrite(LED_BUILTIN, HIGH);
     delay(100);
   }
+
 }
 
 void clearRxBuffer(char * rx_buffer)
