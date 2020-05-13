@@ -103,25 +103,24 @@ void setupTimer1()
   TCNT1 = 0;
 
   // 1 Hz (16000000/((15624+1)*1024))
-  //OCR1A = 15624;
+  OCR1A = 15624;
 
   // Higher timer rates increase simulation speed
   // 5 Hz (16000000/((3124+1)*1024))
   //OCR1A = 3124;
   // 25 Hz (16000000/((624+1)*1024))
   //OCR1A = 624;
-
   // 500 Hz (16000000/((124+1)*256))
-  OCR1A = 124;
+  //OCR1A = 124;
   
   // CTC
   TCCR1B |= (1 << WGM12);
 
   // Prescaler 1024 (1/5/25 Hz)
-  //TCCR1B |= (1 << CS12) | (1 << CS10);
+  TCCR1B |= (1 << CS12) | (1 << CS10);
 
   // Prescaler 256 (500hz)
-  TCCR1B |= (1 << CS12);
+  //TCCR1B |= (1 << CS12);
   
   // Output Compare Match A Interrupt Enable
   TIMSK1 |= (1 << OCIE1A);
@@ -144,7 +143,11 @@ void setupPinChangeInterrupt()
 // Periodic Wind Speed Calculator
 void processSample()
 {
-  sensorTicks = random(1, hourSimMax); // simulation
+  //sensorTicks = random(1, hourSimMax); // simulation
+
+  Serial.print("Sensor Ticks: ");
+  Serial.println(sensorTicks);
+
 
   float revs = sensorTicks / (float) SENSOR_TICKS_REV;
   float rpm = revs * SAMPLE_FREQ_MIN;
@@ -152,14 +155,14 @@ void processSample()
   // calculate linear velocity (metres per second) 
   velocity = rpmToLinearVelocity(rpm);
 
-  //Serial.print("Revolutions: ");
-  //Serial.println(revs);
+  Serial.print("Revolutions: ");
+  Serial.println(revs);
 
-  //Serial.print("RPM: ");
-  //Serial.println(rpm);
+  Serial.print("RPM: ");
+  Serial.println(rpm);
 
-  //Serial.print("Velocity (m/s): ");
-  //Serial.println(velocity);
+  Serial.print("Velocity (m/s): ");
+  Serial.println(velocity);
 
   if (velocity > maxVelocity) // Update 1 minute max velocity
   {
@@ -167,9 +170,9 @@ void processSample()
   }
 
   // Todo - Conversions - Kmph/Mph/Beaufort Scale
-  //float kmph = rpmToKmph(rpm);
-  //Serial.print("Velocity (kmph): ");
-  //Serial.println(kmph);
+  float kmph = rpmToKmph(rpm);
+  Serial.print("Velocity (kmph): ");
+  Serial.println(kmph);
 
   // record sample to 1 minute velocity array
   v[secIndex++] = velocity;
