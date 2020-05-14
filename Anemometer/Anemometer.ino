@@ -38,9 +38,9 @@
 volatile long timerTicks = 0;   // 1hz timer ticks 
 volatile long sensorTicks = 0;  // Optical IR sensor pulse counter
 
-#define SAMPLE_FREQ_MIN 20      // 3 second sample interval 
-#define SAMPLE_FREQ_HOUR 60     // minute average / max 
-#define SAMPLE_FREQ_DAY 24      // hourly average / max 
+#define SAMPLE_FREQ_SEC 20      // 20 * 3 second sample interval 
+#define SAMPLE_FREQ_MIN 60      // minute average / max 
+#define SAMPLE_FREQ_HOUR 24     // hourly average / max 
 #define PI_CONSTANT 3.142
 #define SENSOR_RADIUS 0.08  // Radius (mm) from axis to anemometer cup centre
 #define SENSOR_TICKS_REV 10 // Optical Sensor Pulses in single revolution
@@ -49,13 +49,14 @@ float velocity, maxVelocity;
 int secIndex, minIndex, hourIndex = 0;
 
 // Velocity - Average / Max (m/s)
-float v[SAMPLE_FREQ_MIN];         // current velocity @ 3sec intervals, 20 samples per minute
-float vAvgMin[SAMPLE_FREQ_HOUR];  // 60 minute avg velocity
-float vAvgHour[SAMPLE_FREQ_DAY];  // 24 hour avg velocity 
-float vMaxMin[SAMPLE_FREQ_HOUR];  // 60 minute max velocity
-float vMaxHour[SAMPLE_FREQ_DAY];  // 24 hour max velocity 
+float v[SAMPLE_FREQ_SEC];         // current velocity @ 3sec intervals, 20 samples per minute
+float vAvgMin[SAMPLE_FREQ_MIN];  // 60 minute avg velocity
+float vAvgHour[SAMPLE_FREQ_HOUR];  // 24 hour avg velocity 
+float vMaxMin[SAMPLE_FREQ_MIN];  // 60 minute max velocity
+float vMaxHour[SAMPLE_FREQ_HOUR];  // 24 hour max velocity 
 
-int hourSimMax = 100; // Simulated Max RPM 
+unsigned long startMillis;
+unsigned long currentMillis;
 
 volatile uint8_t portbhistory = 0xFF;
 
@@ -143,14 +144,12 @@ void setupPinChangeInterrupt()
 // Periodic Wind Speed Calculator
 void processSample()
 {
-  //sensorTicks = random(1, hourSimMax); // simulation
 
   Serial.print("Sensor Ticks: ");
   Serial.println(sensorTicks);
 
-
   float revs = sensorTicks / (float) SENSOR_TICKS_REV;
-  float rpm = revs * SAMPLE_FREQ_MIN;
+  float rpm = revs * SAMPLE_FREQ_SEC;
 
   // calculate linear velocity (metres per second) 
   velocity = rpmToLinearVelocity(rpm);
@@ -187,9 +186,9 @@ void processSample()
 // Compute Minute, Hour and Daily Stats = Avg / Max
 void updateStats()
 {
-  if (secIndex == SAMPLE_FREQ_MIN)
+  if (secIndex == SAMPLE_FREQ_SEC)
   {
-    float avg = computeAvg(v, SAMPLE_FREQ_MIN);
+    float avg = computeAvg(v, SAMPLE_FREQ_SEC);
 
     vAvgMin[minIndex] = avg;
     vMaxMin[minIndex] = maxVelocity;
@@ -197,19 +196,18 @@ void updateStats()
     maxVelocity = 0;
     minIndex++;
 
-    if (minIndex == SAMPLE_FREQ_HOUR)
+    if (minIndex == SAMPLE_FREQ_MIN)
     {
-      float avg = computeAvg(vAvgMin, SAMPLE_FREQ_HOUR);
-      float mx = computeMax(vMaxMin, SAMPLE_FREQ_HOUR);
+      float avg = computeAvg(vAvgMin, SAMPLE_FREQ_MIN);
+      float mx = computeMax(vMaxMin, SAMPLE_FREQ_MIN);
 
       vAvgHour[hourIndex] = avg;
       vMaxHour[hourIndex] = mx;
       hourIndex++;
 
       printStats();
-      hourSimMax = random(0,random(0,700)); // generate a new simulated hourly max RPM
 
-      if (hourIndex == SAMPLE_FREQ_DAY)
+      if (hourIndex == SAMPLE_FREQ_HOUR)
       {
           printStats();
 
@@ -228,8 +226,8 @@ void updateStats()
 
 void printStats()
 {
-  float avg = computeAvg(vAvgHour, SAMPLE_FREQ_DAY);
-  float mx = computeMax(vMaxHour, SAMPLE_FREQ_DAY);
+  float avg = computeAvg(vAvgHour, SAMPLE_FREQ_HOUR);
+  float mx = computeMax(vMaxHour, SAMPLE_FREQ_HOUR);
 
   Serial.println("24h Wind Speed Stats: ");
   
@@ -243,7 +241,7 @@ void printStats()
 
   Serial.println("Minute Average: ");
 
-  for(int i = 0; i<SAMPLE_FREQ_HOUR; i++)
+  for(int i = 0; i<SAMPLE_FREQ_MIN; i++)
   {
     Serial.print(i);
     Serial.print(" ");
@@ -252,7 +250,7 @@ void printStats()
 
   Serial.println("Minute Max: ");
 
-  for(int i = 0; i<SAMPLE_FREQ_HOUR; i++)
+  for(int i = 0; i<SAMPLE_FREQ_MIN; i++)
   {
     Serial.print(i);
     Serial.print(" ");
@@ -262,7 +260,7 @@ void printStats()
 
   Serial.println("Hourly Average: ");
 
-  for(int i = 0; i<SAMPLE_FREQ_DAY; i++)
+  for(int i = 0; i<SAMPLE_FREQ_HOUR; i++)
   {
     Serial.print(i);
     Serial.print(" ");
@@ -271,7 +269,7 @@ void printStats()
 
   Serial.println("Hourly Max: ");
 
-  for(int i = 0; i<SAMPLE_FREQ_DAY; i++)
+  for(int i = 0; i<SAMPLE_FREQ_HOUR; i++)
   {
     Serial.print(i);
     Serial.print(" ");
@@ -330,8 +328,12 @@ void loop()
   // calculate wind speed at 3 second intervals
   if (timerTicks > 1 && timerTicks % 3 == 0) 
   {
+    currentMillis = millis();
+    Serial.print("Time (ms): ");
+    Serial.println(currentMillis - startMillis);
     timerTicks = 0;
     processSample();
+    startMillis = millis();
   }
 
 }
