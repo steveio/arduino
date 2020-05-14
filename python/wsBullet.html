@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<style>
+
+body {
+  font-family: "Courier New", sans-serif;
+  text-align: center;
+  margin: auto;
+  padding-top: 40px;
+  position: relative;
+  width: 960px;
+}
+
+button {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+}
+
+.bullet { font: 10px sans-serif; }
+.bullet .marker { stroke: #000; stroke-width: 2px; }
+.bullet .axis line, .bullet .axis path { stroke: #666; stroke-width: .5px; fill: none; }
+.bullet .range.s0 { fill: #de2d26; }
+.bullet .range.s1 { fill: #fc9272; }
+.bullet .range.s2 { fill: #fee0d2; }
+.bullet .measure.s0 { fill: #ffffb2; }
+.bullet .measure.s1 { fill: #fecc5c; }
+.bullet .title { font-size: 14px; font-weight: bold; }
+.bullet .subtitle { font-size: 12px; fill: #999; }
+
+</style>
+<h2>Real Time Arduino Anemometer - D3.js Bullet Chart Display</h2>
+<script src="https://d3js.org/d3.v3.min.js"></script>
+<script src="./wsBullet.js"></script>
+<script>
+
+var velocity = 0;
+var sensorTicks = 0;
+var rpm = 0;
+var velocityMax = 0;
+var sensorTicksMax = 0;
+var rpmMax = 0;
+
+var reconnectAttempts = 0;
+var maxReconnectAttemps = 5;
+ws = new WebSocket('ws://127.0.0.1:5678',[]);
+
+setupWebSocket = function()
+{
+
+  ws.onopen = function () {
+    console.log('WebSocket Open');
+  };
+
+  ws.onerror = function () {
+    console.log('WebSocket Error ' + error);
+  };
+
+  ws.onmessage = function (e) {
+    var rawData = e.data;
+    if(rawData.trim().length > 1 && rawData.trim() != "undefined")
+    {
+      try {
+
+        var a = rawData.split(",");
+        velocity = a[1];
+        sensorTicks = a[2];
+        rpm = a[3];
+
+        velocityMax = (velocity > velocityMax) ? velocity : velocityMax;
+        sensorTicksMax = (sensorTicks > sensorTicksMax) ? sensorTicks : sensorTicksMax;
+        rpmMax = (rpm > rpmMax) ? rpm : rpmMax;
+
+        console.log(velocity);
+        console.log(sensorTicks);
+        console.log();
+
+        svg.datum(updateChart).transition().duration(1000).call(chart);
+
+
+      } catch(e) {
+          console.log(e);
+      }
+    }
+  };
+}
+
+updateChart = function (d) {
+
+  if (d.id == "vc")
+  {
+    d.measures = [velocity/2,velocity];
+    d.markers = [velocityMax];
+  } else if (d.id == "va") {
+    d.measures = [(velocity * 3),0];
+    d.markers = [velocityMax * 3];
+  } else if (d.id == "p") {
+    d.measures = [sensorTicks,0];
+    d.markers = [sensorTicksMax];
+  } else if (d.id == "rpm") {
+    d.measures = [rpm,0];
+    d.markers = [rpmMax];
+  }
+
+  //data.push({"id":"vc","title":"Velocity (Cups)","subtitle":"Linear Velocity m/s","ranges":[5,15,25],"measures":[10,20],"markers":[0]});
+
+  //if (!d.randomizer) d.randomizer = randomizer(d);
+  /*
+  d.ranges = d.ranges.map(d.randomizer);
+  d.markers = d.markers.map(d.randomizer);
+  d.measures = d.measures.map(d.randomizer);
+  */
+  return d;
+}
+
+// check connection status every 60sec, upto maxReconnectAttemps, try reconnect
+const interval = setInterval(function checkConnectStatus() {
+if (reconnectAttempts++ < maxReconnectAttemps)
+{
+  if (ws.readyState !== ws.OPEN) {
+     console.log("WS connection closed - try re-connect");
+     setupWebSocket();
+  }
+}
+}, 60000);
+
+document.addEventListener("DOMContentLoaded", function() {
+  setupWebSocket();
+});
+
+
+var margin = {top: 5, right: 40, bottom: 50, left: 120},
+    width = 192 - margin.left - margin.right,
+    height = 450 - margin.top - margin.bottom;
+
+var chart = d3.bullet()
+    .orient("bottom")
+    .width(width)
+    .height(height);
+
+var data = [];
+data.push({"id":"vc","title":"Velocity (Cup Speed)","subtitle":"Linear Velocity m/s","ranges":[2,4,5],"measures":[0,0],"markers":[0]});
+data.push({"id":"va","title":"Velocity (Air Speed)","subtitle":"Linear Velocity m/s","ranges":[10,20,25],"measures":[0,0],"markers":[0]});
+data.push({"id":"p","title":"Sensor Pulses","subtitle":"Sensor ticks","ranges":[50,225,300],"measures":[0],"markers":[0]});
+data.push({"id":"rpm","title":"RPM","subtitle":"Revs per Min","ranges":[100,375,500],"measures":[0,0],"markers":[0]});
+
+var svg = d3.select("body").selectAll("svg")
+    .data(data)
+  .enter().append("svg")
+    .attr("class", "bullet")
+    .attr("width", width + margin.left + margin.right)
+    .attr("height", height + margin.top + margin.bottom)
+  .append("g")
+    .attr("transform", "translate(" + margin.left + "," + margin.top + ")")
+    .call(chart);
+
+var title = svg.append("g")
+    .style("text-anchor", "end")
+    .attr("transform", "translate(" + width + "," + (height + 20) + ")");
+
+title.append("text")
+    .attr("class", "title")
+    .text(function(d) { return d.title; });
+
+title.append("text")
+    .attr("class", "subtitle")
+    .attr("dy", "1em")
+    .text(function(d) { return d.subtitle; });
+
+
+d3.selectAll("button").on("click", function() {
+  svg.datum(updateChart).transition().duration(3000).call(chart);
+});
+
+
+function randomizer(d) {
+var k = d3.max(d.ranges) * .2;
+return function(d) {
+  return Math.max(0, d + k * (Math.random() - .5));
+};
+}
+
+</script>
