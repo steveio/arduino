@@ -34,7 +34,12 @@
 #define CMD_SENS_FREQ  1002   // set sensor read interval 
 #define CMD_SEND_SSD 1003     // request sd card data
 #define CMD_SET_LED 1004      // toggle internal LED
+#define CMD_SLEEP 1005        // sleep
+#define CMD_WAKEUP 1006       // wakeup
 
+
+// Serial Messaging IO INT2 / RX1 19
+#define RX_INTERRUPT_PIN 19
 
 const int tx_buffer_sz = 256;
 char tx_buff[tx_buffer_sz];
@@ -46,29 +51,25 @@ uint8_t rx_count;
 #define MSG_EOT 0x0A // LF \n 
 #define MSG_CMD 0x40 // @ cmd start 
 
-// Arduino Uno
-//byte rx = 6;
-//byte tx = 7;
+// Mega2560 RX1/TX1
+byte rxPin = 19;
+byte txPin = 18;
 
-// Arduino Mega RX1, TX1
-byte rx = 19;
-byte tx = 18;
 
-SoftwareSerial s(rx,tx);
 
 void setup() {
   Serial.begin(tx_baud);
   Serial.println("Hello Arduino");
 
-  //Serial1.begin(tx_baud);
-  //Serial1.println("Hello Arduino Mega");
+  Serial1.begin(tx_baud);
+  Serial1.println("Hello Arduino Mega");
 
-  pinMode(rx,INPUT);
-  pinMode(tx,OUTPUT);
+  pinMode(rxPin,INPUT);
+  pinMode(txPin,OUTPUT);
 
   // setup Software Serial
-  s.begin(tx_baud);
-  s.println("Hello Arduino Uno");
+  //s.begin(tx_baud);
+  //s.println("Hello Arduino Uno");
 
   Serial.println("Serial TX/RX BUFFER SIZE: ");
   Serial.println(SERIAL_TX_BUFFER_SIZE);
@@ -78,9 +79,9 @@ void setup() {
 }
 
 void loop() {
-  //readSerialInput();
+  readSerialInput();
   //writeSerialOuput();
-  sendExampleCmd();
+  //sendExampleCmd();
 }
 
 /**
@@ -111,34 +112,34 @@ void readSerialInput()
 {
   int rxMsgId=0;
 
-  while(1)
-  {
-    // Serial RX Handler
-    int b = 0; // EOT break
-    rx_count = 0;
-    yield(); // disable Watchdog 
+  // Serial RX Handler
+  int b = 0; // EOT break
+  rx_count = 0;
+  yield(); // disable Watchdog 
 
-    while((b == 0) && (s.available() >= 1))
+  while((b == 0) && (Serial1.available() >= 1))
+  {
+    char c = Serial1.read();
+    if (c >= 0x20 && c <= 0xFF)
     {
-      char c = s.read();
-      if (c >= 0x20 && c <= 0xFF || c == 0x00)
-      {
-        rx_buffer[rx_count++] = c;
-      }
-  
-      if (c == MSG_EOT || (rx_count == rx_buffer_sz))
-      {
-        b = 1;
-      }
+      Serial.print(c,HEX);
+      rx_buffer[rx_count++] = c;
     }
- 
-    if (rx_count >= 1)
+
+    if (c == MSG_EOT || (rx_count == rx_buffer_sz))
     {
-      Serial.println("Serial RX Message: ");
-      Serial.println(rx_buffer);
-      rxMsgId++;
-      clearRxBuffer(rx_buffer);
+      b = 1;
     }
+  }
+
+  if (rx_count >= 1)
+  {
+    rxMsgId++;
+    Serial.println("Serial RX Message: ");
+    Serial.println(rx_buffer);
+
+    processCmd(rx_buffer);
+    clearRxBuffer(rx_buffer);
   }
 
 }
@@ -199,6 +200,18 @@ void processCmd(char * rx_buffer)
         Serial.print("Cmd: Set Sample Freq: ");
         Serial.println(data);
         break;
+    case CMD_SLEEP :
+        Serial.print("Cmd: Sleep");
+        //pinMode( RTC_INTERRUPT_PIN, INPUT_PULLUP);
+        //pinMode( RX_INTERRUPT_PIN, INPUT_PULLUP);
+        //setAlarm();
+        //sleep();
+        break;
+    case CMD_WAKEUP :
+        Serial.print("Cmd: WakeUp");
+        //wakeUpSerialRx();
+        break;
+
     default :
         Serial.println("Cmd: Invalid CMD");
   }

@@ -16,7 +16,7 @@
     TP4056 Battery Charge Controller
     2x Li-ion 3.7v 3600mAh Battery
 
-  Includes Serial IO to an ESP8266 for cmd input and data reporting
+  ESP8266 provides bidirectional serial IO for network cmd input and data logging
   
   Requires:
     https://github.com/steveio/AlarmSchedule
@@ -41,6 +41,8 @@
 #include <avr/power.h>
 
 
+// pinout for peripheral VCC / GND power rail
+const int mosfetPin = 9;
 
 const long baud_rate = 115200;
 
@@ -52,8 +54,7 @@ const long baud_rate = 115200;
 #define CMD_SLEEP 1005        // sleep
 #define CMD_WAKEUP 1006       // wakeup
 #define CMD_NTP_SYNC 1007     // sync RTC w/ NTP time
-#define CMD_LED_ON 1010       // toggle internal LED
-#define CMD_LED_OFF 1011      // toggle internal LED
+#define CMD_LED 1010          // toggle internal LED
 #define CMD_SET_LCD 1012      // toggle LCD Display
 #define CMD_SET_SDCARD 1013   // toggle SD Card Data logging
 #define CMD_SET_WIFI_TX 1014  // toggle Wifi JSON logging
@@ -85,6 +86,8 @@ char rx_buffer[rx_buffer_sz];
 uint8_t rx_count;
 #define MSG_EOT 0x0A // LF \n 
 #define MSG_CMD 0x40 // @ cmd start 
+#define MSG_JSON_START 0x7B // { begining JSON cmd
+#define MSG_JSON_END 0x7D // } end JSON cmd
 
 // Mega2560 RX1/TX1
 byte rxPin = 19;
@@ -124,7 +127,7 @@ int h1;
 
 
 boolean lcd_active = 0;
-boolean sd_active = 1; // enable/disable SD Card Data Logging
+boolean sd_active = 0; // enable/disable SD Card Data Logging
 boolean wifi_tx_active = 1; // transmit JSON over software serial to ESP8266
 
 
@@ -271,7 +274,10 @@ void setup() {
   pinMode(rxPin,INPUT);
   pinMode(txPin,OUTPUT);
 
-  delay(1000);
+  pinMode(mosfetPin, OUTPUT);
+  digitalWrite(mosfetPin, HIGH);
+
+  delay(3000);
 
   Serial.println("Weather Station: Begin\n");
   Serial1.println("Arduino Mega2560 Weather Station Begin!");
@@ -298,12 +304,15 @@ void setup() {
   setInternalClock();
   setRTC(); // sync RTC clock w/ system time
 
+  dt = rtc.get();
+  ts = dt.unixtime(); // unix ts for logging
   sensorRead();
+  serialiseJSON();
 
   pinMode( RTC_INTERRUPT_PIN, INPUT_PULLUP);
   pinMode( RX_INTERRUPT_PIN, INPUT_PULLUP);
   setAlarm();
-  sleep();
+  //sleep();
 }
 
 
@@ -332,7 +341,7 @@ void loop() {
     serialiseJSON();
 
     setAlarm();
-    sleep();
+    //sleep();
   }
 
 }
@@ -411,6 +420,7 @@ void serialiseJSON()
   data["p"] = bmpPressure;
   data["tc2"] = bmpTempC;
   data["a"] = bmpAlt;
+  data["w"] = wSensorVal;
 
   char json_string[256];
   serializeJson(doc, json_string);
@@ -468,13 +478,20 @@ void readSerialInput()
   int b = 0; // EOT break
   rx_count = 0;
   yield(); // disable Watchdog 
+  byte parseJSONCmd = 0;
 
   while((b == 0) && (Serial1.available() >= 1))
   {
     char c = Serial1.read();
-    if (c >= 0x20 && c <= 0xFF)
+    if (c == MSG_JSON_START)
+    {
+      parseJSONCmd = true;
+    }
+
+    if (parseJSONCmd)
     {
       Serial.print(c,HEX);
+      Serial.print(" ");
       rx_buffer[rx_count++] = c;
     }
 
@@ -487,6 +504,7 @@ void readSerialInput()
   if (rx_count >= 1)
   {
     rxMsgId++;
+    Serial.println(" ");
     Serial.println("Serial RX Message: ");
     Serial.println(rx_buffer);
 
@@ -548,12 +566,14 @@ void processCmd(char * rx_buffer)
         break;
     case CMD_SLEEP :
         Serial.print("Cmd: Sleep");
+        pinMode( RTC_INTERRUPT_PIN, INPUT_PULLUP);
+        pinMode( RX_INTERRUPT_PIN, INPUT_PULLUP);
         setAlarm();
         sleep();
         break;
     case CMD_WAKEUP :
         Serial.print("Cmd: WakeUp");
-        wakeUp();
+        wakeUpSerialRx();
         break;
     case CMD_NTP_SYNC :
         Serial.print("Cmd: NTP Sync");
@@ -563,13 +583,9 @@ void processCmd(char * rx_buffer)
         DateTime rtc_t = rtc.get();
         Serial.println(rtc_t.unixtime());
         break;
-    case CMD_LED_ON :
-        Serial.print("Cmd: LED ON");
-        digitalWrite(LED_BUILTIN, HIGH);
-        break;
-    case CMD_LED_OFF :
-        Serial.print("Cmd: LED OFF");
-        digitalWrite(LED_BUILTIN, LOW);
+    case CMD_LED :
+        Serial.print("Cmd: Toggle LED");
+        digitalWrite(LED_BUILTIN, digitalRead(LED_BUILTIN) ^ 1);
         break;
     case CMD_SET_LCD :
         Serial.print("Cmd: SET LCD");
@@ -655,15 +671,9 @@ time_t syncProviderRTC()
 void sleep()
 {
   Serial.println("sleep()");
-  delay(1000);
-
-  for (int i = 0; i <= 53; i++) {
-    pinMode(i, OUTPUT);
-    digitalWrite(i, LOW);
-  }
-
   digitalWrite(13, LOW); // turn off internal LED
-
+  digitalWrite(mosfetPin, LOW); // turn off peripheral power rail
+  delay(1000);
 
   power_adc_disable();
   power_spi_disable();
@@ -721,7 +731,10 @@ void wakeUp()
   power_timer5_enable();
   power_twi_enable();
 
+  digitalWrite(mosfetPin, HIGH);
   digitalWrite(13, HIGH); // turn on internal LED
 
   Serial1.println(" \n");
+
+  delay(2000);
 }
