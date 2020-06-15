@@ -49,7 +49,7 @@ int xLimitLow = 200;
 int xLimitHigh = 1024;
 int xIncrement = 10;
 
-int yPos = 512;
+int yPos = 256;
 int yCentre = 512;
 int yLimitLow = 200;
 int yLimitHigh = 1024;
@@ -279,6 +279,78 @@ void DrawBarChartH(Adafruit_SSD1306 &d, double curval, double x , double y , dou
 }
 
 
+void DrawDial(Adafruit_SSD1306 &d, double curval, int cx, int cy, int r, double loval , double hival , double inc, double dig, double sa, String label, bool &Redraw) {
+
+  double ix, iy, ox, oy, tx, ty, lx, rx, ly, ry, i, Offset, stepval, data, angle;
+  double degtorad = .0174532778;
+  static double px = cx, py = cy, pix = cx, piy = cy, plx = cx, ply = cy, prx = cx, pry = cy;
+
+  if (Redraw) {
+    //Redraw = false;
+    // draw the dial only one time--this will minimize flicker
+    d.setTextColor(SSD1306_WHITE,SSD1306_BLACK);
+    d.setTextSize(1);
+    d.setCursor(cx - r, 1);
+    d.println(label);
+
+    // center the scale about the vertical axis--and use this to offset the needle, and scale text
+    Offset = (270 +  sa / 2) * degtorad;
+    // find hte scale step value based on the hival low val and the scale sweep angle
+    // deducting a small value to eliminate round off errors
+    // this val may need to be adjusted
+    stepval = ( inc) * (double (sa) / (double (hival - loval))) + .00;
+    // draw the scale and numbers
+    // note draw this each time to repaint where the needle was
+    for (i = 0; i <= sa; i += stepval) {
+      angle = ( i  * degtorad);
+      angle = Offset - angle ;
+      ox =  (r - 2) * cos(angle) + cx;
+      oy =  (r - 2) * sin(angle) + cy;
+      ix =  (r - 6) * cos(angle) + cx;
+      iy =  (r - 6) * sin(angle) + cy;
+      tx =  (r + 10) * cos(angle) + cx + 8;
+      ty =  (r + 10) * sin(angle) + cy;
+      d.drawLine(ox, oy, ix, iy, SSD1306_WHITE);
+      //d.setTextSize(1);
+      //d.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
+      //d.setCursor(tx - 10, ty );
+      //data = hival - ( i * (inc / stepval)) ;
+      //d.println(data, dig);
+    }
+    for (i = 0; i <= sa; i ++) {
+      angle = ( i  * degtorad);
+      angle = Offset - angle ;
+      ox =  (r - 2) * cos(angle) + cx;
+      oy =  (r - 2) * sin(angle) + cy;
+      d.drawPixel(ox, oy, SSD1306_WHITE);
+    }
+  }
+  // compute and draw the needle
+  angle = (sa * (1 - (((curval - loval) / (hival - loval)))));
+  angle = angle * degtorad;
+  angle = Offset - angle  ;
+  ix =  (r - 10) * cos(angle) + cx;
+  iy =  (r - 10) * sin(angle) + cy;
+  // draw a triangle for the needle (compute and store 3 vertiticies)
+  lx =  1 * cos(angle - 90 * degtorad) + cx;
+  ly =  1 * sin(angle - 90 * degtorad) + cy;
+  rx =  1 * cos(angle + 90 * degtorad) + cx;
+  ry =  1 * sin(angle + 90 * degtorad) + cy;
+
+  // draw a cute little dial center
+  d.fillCircle(cx, cy, r - 6, SSD1306_BLACK);
+
+  // then draw the new needle
+  d.fillTriangle (ix, iy, lx, ly, rx, ry, SSD1306_WHITE);
+
+  // draw a cute little dial center
+  d.fillCircle(cx, cy, 1, SSD1306_WHITE);
+
+  d.display();
+
+}
+
+
 void setup() 
 {
   Serial.begin(115200); // Initialize the serial port
@@ -289,6 +361,11 @@ void setup()
 
   // setup servo (tilt)
   Servo1.attach(servoPin);
+
+  int yAxisDeg = map(yPos, 0, analogueHigh, 0, 180);
+
+  Servo1.write(yAxisDeg); 
+
 
   Stepper1.setSpeed(5);
 
@@ -417,12 +494,26 @@ void loop()
   }
 
 
+  char xlabel[8];
+  sprintf(xlabel, "pan %d", xAxisDeg);
+
+  // Pan Dial
+  DrawDial(display, xAxisDeg, 28, 32, 24, 0, 180 , 45 , 0, 200, xlabel, Redraw);
+
+  char ylabel[8];
+  sprintf(ylabel, "tilt %d", yAxisDeg);
+
+  // Tilt Dial
+  DrawDial(display, yAxisDeg, 98, 32, 24, 0, 180 , 45 , 0, 200, ylabel, Redraw);
+
+  /*
   char str_temp[6];
   dtostrf(voltage, 4, 2, str_temp);
   char label[16];
   sprintf(label, "Solar %s (v)", str_temp);
 
   DrawBarChartH(display, voltage, 0, 16, 120, 8, 0, 5, 1, 0, label, Redraw);
+  */
 
   delay(200);
 }
