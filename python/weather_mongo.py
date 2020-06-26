@@ -1,10 +1,10 @@
 #
-# Weather Daily Metric & Stats
-# Process 1..n daily json format data file recording weather sensor metrics: temp, humidity, light, pressure
-# Compute interval (daily) metric stats: Average, Min, Max, STD Deviation, % Change
-# Chart / Plot results
+# Time Series Weather Statistics
 #
-# Demonstrates some uses of Python - Pandas, Matplotlib
+# Resample & analyse Arduino weather station sensor data recorded to a Mongo DB Datastore
+# Compute Time Series Statistics - Average, Min, Max, STD Deviation, % Change
+#
+# Demonstrates Python Sci-Pi Libraries - Pandas, Numpy, Matplotlib, JSON, Mongo DB
 #
 
 
