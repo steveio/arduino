@@ -35,10 +35,12 @@ sensorData = mydb[mongo_collection]
 
 d = []
 
-tsdoc = sensorData.find_one(sort=[("ts", pymongo.DESCENDING)])
-ts = tsdoc['ts'] - 86400
 
-mydoc = sensorData.find({"ts":{'$gte': ts,}}, {'_id': 0})
+currts = sensorData.find_one(sort=[("ts", pymongo.DESCENDING)])
+startts = currts['ts'] - 86400
+endts = currts['ts'] - 18000
+
+mydoc = sensorData.find({"ts":{'$gte': startts,'$lte': endts}}, {'_id': 0})
 
 for doc in mydoc:
   s = json.dumps(doc, sort_keys=True,default=json_util.default)
@@ -112,25 +114,21 @@ fig, ax = plt.subplots(4)
 # to locate a specific range
 # df.loc['2020-04-02 05:00':'2020-04-03 17:00']['tempC']
 ax[0].plot(df['tempC'],linewidth=0.5, label='Temp (C)')
-ax[0].set_title('Temp (C)')
-ax[0].set_ylabel('')
+ax[0].set_ylabel('Temp (C)')
 ax[0].legend();
 
 ax[1].plot(df['h'],linewidth=0.5, label='Humidity')
-ax[1].set_title('Humidity %')
-ax[1].set_ylabel('')
+ax[1].set_ylabel('Humidity %')
 ax[1].legend();
 
 ax[2].plot(df['p'],linewidth=0.5, label='Pressure (pascals)')
-ax[2].set_title('Barometric Air Pressure')
-ax[2].set_ylabel('')
+ax[2].set_ylabel('Air Pressure (pascals)')
 ax[2].axhline(y=102268.9, color='r', linestyle='-', label="High Pressure")
 ax[2].axhline(y=100914.4, color='b', linestyle='-', label="Low Pressure")
 ax[2].legend();
 
 ax[3].plot(df['LDR'],linewidth=0.5, label='Light Level (LDR)')
-ax[3].set_title('Light Level')
-ax[3].set_ylabel('')
+ax[3].set_ylabel('LDR Level')
 ax[3].legend();
 
 
@@ -263,6 +261,7 @@ ax[3].set_title('Air Pressure (Pascals) 3 hour mean % change rate')
 ax[3].set_ylabel('')
 ax[3].legend();
 
+plt.tight_layout()
 
 plt.show()
 
