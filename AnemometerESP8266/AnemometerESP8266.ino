@@ -3,6 +3,8 @@
  * 
  * OPL550 IR Phototransistor sensor,  OPL240 IR led & optical light chopper interrupter
  * 
+ * ESP8266 Version
+ * 
  * Phase = Time to complete a single rotation
  * Frequency = Number of rotations in a timed interval
  * RPM = Revolutions per minute
@@ -70,11 +72,8 @@ typedef struct
 } SensorData;
 
 
-const char* ssid = "TALKTALK1F2294";
-const char* password = "R7EJNAK7";
-
-//const char* ssid = "AndroidAP4026";
-//const char* password = "c919d73e9374";
+//const char* ssid = "AndroidAPXXXX";
+//const char* password = "__PASS_";
 
 
 const char* mqtt_server = "192.168.1.127";
