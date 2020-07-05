@@ -15,6 +15,30 @@
 
 
 /*
+
+Example Serial Output:
+rst:0x5 (DEEPSLEEP_RESET),boot:0x13 (SPI_FAST_FLASH_BOOT)
+configsip: 0, SPIWP:0xee
+clk_drv:0x00,q_drv:0x00,d_drv:0x00,cs0_drv:0x00,hd_drv:0x00,wp_drv:0x00
+mode:DIO, clock div:1
+load:0x3fff0018,len:4
+load:0x3fff001c,len:1216
+ho 0 tail 12 room 4
+load:0x40078000,len:9720
+ho 0 tail 12 room 4
+load:0x40080400,len:6352
+entry 0x400806b8
+Wakeup caused by timer
+Mode 0, Init 33 ms, Wifi 284 ms, Mqtt 284 ms, seq=100, SSID TALKTALK1F2294, IDF v3.2.3-14-gd3e562907
+BMP280, OLED init
+Temperature = 23.37 *C
+Pressure = 1009.41 hPa
+Approx altitude = 85.12 m
+Attempting MQTT connection...connected
+Publish message: 23.37,1009.41,85.12
+Sleep at 2953 ms, wake every 15 secs
+
+-- I2C address:
 I2C device found at address 0x3C
 I2C device found at address 0x76
 */
@@ -149,8 +173,6 @@ void setup_wifi() {
         deep_sleep();
     }
     while (WiFi.status() != WL_CONNECTED) delay(1);
-    uint32_t wifiConnMs = millis();
-    printf("Wifi connect in %dms\n", wifiConnMs);
 
 }
 
@@ -213,32 +235,33 @@ void print_wakeup_reason(){
 
 void deep_sleep() {
 
-  printf("Sleep at %d ms\n\n", millis());
-  delay(20);
+  Serial.println("Sleep at " + String(millis()) + " ms, wake every " + String(TIME_TO_SLEEP) + " secs");
 
   esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
-  Serial.println("Setup ESP32 to sleep for every " + String(TIME_TO_SLEEP) + " Seconds");
 
   //esp_deep_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_OFF);
   //Serial.println("Configured all RTC Peripherals to be powered down in sleep");
 
-  Serial.println("Going to sleep now");
   Serial.flush(); 
   esp_deep_sleep_start();
 }
 
 
 void setup() {
-  
+
+  uint32_t startMs = millis();
+
   Serial.begin(115200);
   
   print_wakeup_reason();
   
   setup_wifi();
+  uint32_t wifiConnMs = millis();
+
   client.setServer(mqtt_server, 1883);
-  client.setCallback(callback);
-    
+  client.setCallback(callback);  
   uint32_t mqttConnMs = millis();
+
   printf("Mode %d, Init %d ms, Wifi %d ms, Mqtt %d ms, seq=%d, SSID %s, IDF %s\n",
           cfgbuf.mode, startMs, wifiConnMs, mqttConnMs, cfgbuf.seq,ssid, esp_get_idf_version());
 
@@ -268,8 +291,6 @@ void setup() {
 }
 
 void loop() {
-
-  print_wakeup_reason();
 
   Serial.print(F("Temperature = "));
   Serial.print(bmp.readTemperature());
