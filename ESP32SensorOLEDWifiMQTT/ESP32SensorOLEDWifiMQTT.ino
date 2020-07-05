@@ -1,8 +1,9 @@
 /**
  * ESP32 BMP280 Sensor, 0.96 OLED LCD 
  * 
- * Wake from deep sleep on interval, read sensor, transmit data over wifi to MQTT server
+ * Timer wake from deep sleep, read sensor, transmit data over wifi to MQTT server
  * 
+ * Wifi dynamic parameters: IP, Subnet Mask, Gateway, DNS are cached during sleep & restored on wake
  * 
  */
 
@@ -45,7 +46,7 @@ int value = 0;
 
 
 #define uS_TO_S_FACTOR 1000000ULL  /* Conversion factor for micro seconds to seconds */
-#define TIME_TO_SLEEP  10         /* Sleep Time (in seconds) */
+#define TIME_TO_SLEEP  15         /* Sleep Time (in seconds) */
 
 
 static RTC_DATA_ATTR struct {
@@ -211,114 +212,123 @@ void print_wakeup_reason(){
 
 
 void deep_sleep() {
-    printf("Sleep at %d ms\n\n", millis());
-    delay(20);
 
-    esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
-    Serial.println("Setup ESP32 to sleep for every " + String(TIME_TO_SLEEP) + " Seconds");
+  printf("Sleep at %d ms\n\n", millis());
+  delay(20);
 
-    //esp_deep_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_OFF);
-    //Serial.println("Configured all RTC Peripherals to be powered down in sleep");
+  esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
+  Serial.println("Setup ESP32 to sleep for every " + String(TIME_TO_SLEEP) + " Seconds");
 
-    Serial.println("Going to sleep now");
-    Serial.flush(); 
-    esp_deep_sleep_start();
+  //esp_deep_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_OFF);
+  //Serial.println("Configured all RTC Peripherals to be powered down in sleep");
 
+  Serial.println("Going to sleep now");
+  Serial.flush(); 
+  esp_deep_sleep_start();
 }
 
 
 void setup() {
+  
   Serial.begin(115200);
-
+  
   print_wakeup_reason();
-
+  
   setup_wifi();
   client.setServer(mqtt_server, 1883);
   client.setCallback(callback);
+    
+  uint32_t mqttConnMs = millis();
+  printf("Mode %d, Init %d ms, Wifi %d ms, Mqtt %d ms, seq=%d, SSID %s, IDF %s\n",
+          cfgbuf.mode, startMs, wifiConnMs, mqttConnMs, cfgbuf.seq,ssid, esp_get_idf_version());
 
-  Serial.println(F("BMP280 test"));
+  cfgbuf.mode++;
+  writecfg();
 
 
+  Serial.println(F("BMP280, OLED init"));
+  
   if (!bmp.begin()) {
     Serial.println(F("Could not find a valid BMP280 sensor, check wiring!"));
     while (1);
   }
-
+  
   /* Default settings from datasheet. */
   bmp.setSampling(Adafruit_BMP280::MODE_NORMAL,     /* Operating Mode. */
                   Adafruit_BMP280::SAMPLING_X2,     /* Temp. oversampling */
                   Adafruit_BMP280::SAMPLING_X16,    /* Pressure oversampling */
                   Adafruit_BMP280::FILTER_X16,      /* Filtering. */
                   Adafruit_BMP280::STANDBY_MS_500); /* Standby time. */
-
+  
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C); //Start the OLED display
   display.clearDisplay();
   display.display();
   delay(2000);
+
 }
 
 void loop() {
 
-    print_wakeup_reason();
+  print_wakeup_reason();
 
-    Serial.print(F("Temperature = "));
-    Serial.print(bmp.readTemperature());
-    Serial.println(" *C");
+  Serial.print(F("Temperature = "));
+  Serial.print(bmp.readTemperature());
+  Serial.println(" *C");
 
-    Serial.print(F("Pressure = "));
-    Serial.print(bmp.readPressure()/100); //displaying the Pressure in hPa, you can change the unit
-    Serial.println(" hPa");
+  Serial.print(F("Pressure = "));
+  Serial.print(bmp.readPressure()/100); //displaying the Pressure in hPa, you can change the unit
+  Serial.println(" hPa");
 
-    Serial.print(F("Approx altitude = "));
-    Serial.print(bmp.readAltitude(1019.66)); //The "1019.66" is the pressure(hPa) at sea level in day in your region
-    Serial.println(" m");                    //If you don't know it, modify it until you get your current altitude
+  Serial.print(F("Approx altitude = "));
+  Serial.print(bmp.readAltitude(1019.66)); //The "1019.66" is the pressure(hPa) at sea level in day in your region
+  Serial.println(" m");                    //If you don't know it, modify it until you get your current altitude
 
-    display.clearDisplay();
-    float T = bmp.readTemperature();           //Read temperature in C
-    float P = bmp.readPressure()/100;         //Read Pressure in Pa and conversion to hPa
-    float A = bmp.readAltitude(1019.66);      //Calculating the Altitude, the "1019.66" is the pressure in (hPa) at sea level at day in your region
-                                              //If you don't know it just modify it until you get the altitude of your place
-    
-    display.setCursor(0,0);                   //Oled display, just playing with text size and cursor to get the display you want
-    display.setTextColor(WHITE);
-    display.setTextSize(2); 
-    display.print("Temp");
-    
-    display.setCursor(0,18);
-    display.print(T,1);
-    display.setCursor(50,17);
-    display.setTextSize(1);
-    display.print("C");
-
-    display.setTextSize(1);
-    display.setCursor(65,0);
-    display.print("Pres");
-    display.setCursor(65,10);
-    display.print(P);
-    display.setCursor(110,10);
-    display.print("hPa");
-
-    display.setCursor(65,25);
-    display.print("Alt");
-    display.setCursor(90,25);
-    display.print(A,0);
-    display.setCursor(110,25);
-    display.print("m");
-    
-    display.display();
-
-    if (!client.connected()) {
-      reconnect();
-    }
-    client.loop();
-
-    delay(500);
+  display.clearDisplay();
+  float T = bmp.readTemperature();           //Read temperature in C
+  float P = bmp.readPressure()/100;         //Read Pressure in Pa and conversion to hPa
+  float A = bmp.readAltitude(1019.66);      //Calculating the Altitude, the "1019.66" is the pressure in (hPa) at sea level at day in your region
+                                            //If you don't know it just modify it until you get the altitude of your place
   
-    snprintf(msg, MSG_BUFFER_SIZE, "%.2f,%.2f,%.2f", T, P, A);
+  display.setCursor(0,0);
+  display.setTextColor(WHITE);
+  display.setTextSize(2); 
+  display.print("Temp");
+  
+  display.setCursor(0,18);
+  display.print(T,1);
+  display.setCursor(50,17);
+  display.setTextSize(1);
+  display.print("C");
 
-    Serial.print("Publish message: ");
-    Serial.println(msg);
-    client.publish(mqtt_channel_pub, msg);
+  display.setTextSize(1);
+  display.setCursor(65,0);
+  display.print("Pres");
+  display.setCursor(65,10);
+  display.print(P);
+  display.setCursor(110,10);
+  display.print("hPa");
 
-    deep_sleep();
+  display.setCursor(65,25);
+  display.print("Alt");
+  display.setCursor(90,25);
+  display.print(A,0);
+  display.setCursor(110,25);
+  display.print("m");
+  
+  display.display();
+
+  if (!client.connected()) {
+    reconnect();
+  }
+  client.loop();
+
+  delay(500);
+
+  snprintf(msg, MSG_BUFFER_SIZE, "%.2f,%.2f,%.2f", T, P, A);
+
+  Serial.print("Publish message: ");
+  Serial.println(msg);
+  client.publish(mqtt_channel_pub, msg);
+
+  deep_sleep();
 }
