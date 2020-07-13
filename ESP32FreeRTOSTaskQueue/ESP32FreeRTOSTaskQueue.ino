@@ -31,27 +31,18 @@ taskData t2;
 
 
 hw_timer_t * timer = NULL;
-portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;
+portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
+
+volatile int interruptCounter = 0;
+int numberOfInterrupts = 0;
 
 volatile int taskState = 1; // 0 = idle, 1 = running
 
+/* ISR - Timer */
 void IRAM_ATTR taskControl() {
-  Serial.print("ISR ");
-  Serial.print(millis());
-  portENTER_CRITICAL_ISR(&timerMux);
-  if (taskState == 1)
-  {
-    Serial.println(" : Suspend");
-    vTaskSuspend( t1.th );
-    vTaskSuspend( t2.th );
-    taskState = 0;
-  } else {
-    Serial.println(" : Resume");
-    xTaskResumeFromISR( t1.th );
-    xTaskResumeFromISR( t2.th );
-    taskState = 1;
-  }
-  portEXIT_CRITICAL_ISR(&timerMux);
+  portENTER_CRITICAL_ISR(&mux);
+  interruptCounter++;
+  portEXIT_CRITICAL_ISR(&mux);
 } 
 
 void setup() {
@@ -70,11 +61,11 @@ void setup() {
   t2.th = NULL;
 
   xTaskCreate(
-      sendTask,      /* Task function. */
+      sendTask,       /* Task function. */
       t1.name,        /* name of task. */
-      10000,         /* Stack size of task */
+      10000,          /* Stack size of task */
       (void*)&t1,     /* parameter of the task */
-      3,             /* priority of the task */
+      3,              /* priority of the task */
       &t1.th);        /* Task handle to keep track of created task */
 
   xTaskCreate(
@@ -102,6 +93,32 @@ void setup() {
 }
 
 void loop() {
+  if(interruptCounter > 0){
+ 
+      portENTER_CRITICAL(&mux);
+      interruptCounter--;
+      portEXIT_CRITICAL(&mux);
+ 
+      numberOfInterrupts++;
+      Serial.print("An interrupt has occurred. Total: ");
+      Serial.println(numberOfInterrupts);
+
+      Serial.print("ISR Time:");
+      Serial.print(millis());
+
+      if (taskState == 1)
+      {
+        Serial.println(" : Suspend");
+        vTaskSuspend( t1.th );
+        vTaskSuspend( t2.th );
+        taskState = 0;
+      } else {
+        Serial.println(" : Resume");
+        xTaskResumeFromISR( t1.th );
+        xTaskResumeFromISR( t2.th );
+        taskState = 1;
+      }
+  }
 
 }
 
@@ -115,7 +132,8 @@ void sendTask( void * parameter )
   Serial.print(F(" ,Name:"));
   Serial.print(t.name);
   Serial.print(F(" ,Priority:"));
-  Serial.println(uxTaskPriorityGet(t.th));
+  Serial.print(uxTaskPriorityGet(t.th));
+  Serial.println();
 
   int taskId = t.id;
     
@@ -123,27 +141,21 @@ void sendTask( void * parameter )
   BaseType_t xStatus;
   /* time to block the task until the queue has free space */
   const TickType_t xTicksToWait = pdMS_TO_TICKS(100);
+
   /* create data to send */
   Data data;
   data.sender = taskId;
   data.counter = 1;
+
   for(;;){
 
     /* send data to front of the queue */
     xStatus = xQueueSendToFront( xQueue, &data, xTicksToWait );
+
     /* check whether sending is ok or not */
     if( xStatus == pdPASS ) {
       /* increase task counter */
       data.counter = data.counter + 1;
-
-      /* number of running tasks, system load or more complex logic should determine priority */
-      if(data.counter == 20){
-        vTaskPrioritySet( t.th, 4 );
-
-        Serial.print(F("New Priority:"));
-        Serial.println(uxTaskPriorityGet(t.th));
-
-      }
     }
 
     /* we delay here so that receiveTask has chance to receive data */
@@ -155,12 +167,13 @@ void sendTask( void * parameter )
 void receiveTask( void * parameter )
 {
 
-
   /* keep the status of receiving data */
   BaseType_t xStatus;
   /* time to block the task until data is available */
   const TickType_t xTicksToWait = pdMS_TO_TICKS(100);
   Data data;
+  int lastTaskPrioritySwitch = 0;
+
   for(;;){
     /* receive data from the queue */
     xStatus = xQueueReceive( xQueue, &data, xTicksToWait );
@@ -173,6 +186,25 @@ void receiveTask( void * parameter )
       Serial.print(" counter = ");
       Serial.println(data.counter);
     }
+
+    /* switch send task priorities every n counts */
+    if((data.counter % 10) == 0 && lastTaskPrioritySwitch != data.counter){
+      if (uxTaskPriorityGet(t1.th) < uxTaskPriorityGet(t2.th))
+      { 
+        vTaskPrioritySet( t1.th, 4 );
+        vTaskPrioritySet( t2.th, 2 );
+      } else {
+        vTaskPrioritySet( t1.th, 2 );
+        vTaskPrioritySet( t2.th, 4 );        
+      }
+      Serial.print(F("t1 New Priority:"));
+      Serial.println(uxTaskPriorityGet(t1.th));
+      Serial.print(F("t2 New Priority:"));
+      Serial.println(uxTaskPriorityGet(t2.th));
+      lastTaskPrioritySwitch = data.counter;
+
+    }
+
   }
   vTaskDelete( NULL );
 }
