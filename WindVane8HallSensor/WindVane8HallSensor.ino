@@ -98,22 +98,23 @@ void loop() {
     for(int i = 3; i <= 10; i++)
     {
       v = digitalRead(i);
-    
+
       if (v == 0)
       {
         active = i;
-        Serial.print(i);
-        Serial.print("\t");
-        Serial.println(directionLabel[i-3]);
       }
     }
     if (active == 0) // magnet between sensor positions
     {
-        Serial.print(lastActive);
-        Serial.print("\t");
-        Serial.println(directionLabel[lastActive-3]);
-      
+        active = lastActive;      
     }
+    if (active != lastActive)
+    {
+      Serial.print(active);
+      Serial.print("\t");
+      Serial.println(directionLabel[active-3]);
+    }
+
     lastActive = active;
 
     lastIrq = millis();
