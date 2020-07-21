@@ -13,20 +13,26 @@ int active = NULL;
 int lastActive = NULL;
 
 // pin order direction labels
-char d0[] = "NE";
-char d1[] = "SE";
-char d2[] = "E";
-char d3[] = "S";
+char d0[] = "S";
+char d1[] = "W";
+char d2[] = "SW";
+char d3[] = "NW";
 char d4[] = "N";
-char d5[] = "W";
-char d6[] = "NW";
-char d7[] = "SW";
+char d5[] = "E";
+char d6[] = "SE";
+char d7[] = "NE";
 
 char * directionLabel[] = { d0, d1, d2, d3, d4, d5, d6, d7 };
 
 
 volatile int irqState = 0;
+unsigned long lastIrq;
+int irqDelay = 100; // millisecs
 
+/*
+ * Pin Change Interrupts 
+ * 
+ */
 void pin2IRQ()
 {
   irqState = 1; 
@@ -71,9 +77,13 @@ void setup() {
   pinMode(10,INPUT_PULLUP);
   pinMode(11,INPUT_PULLUP);
 
+  // interupt ISR per pin
   //setupPinChangeInterrupt();
 
+  // common interrupt on pin d2
   attachInterrupt(0, pin2IRQ, FALLING);
+
+  lastIrq = millis();
 
 }
 
@@ -82,10 +92,10 @@ void loop() {
   int v;
   active = 0;
 
-  if (irqState == 1)
+  if (irqState == 1 && (millis() - lastIrq > irqDelay))
   {
 
-    for(int i = 4; i <= 11; i++)
+    for(int i = 3; i <= 10; i++)
     {
       v = digitalRead(i);
     
@@ -105,7 +115,8 @@ void loop() {
       
     }
     lastActive = active;
-  
+
+    lastIrq = millis();
     irqState = 0;
   }
 
