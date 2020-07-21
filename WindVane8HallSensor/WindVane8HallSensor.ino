@@ -4,7 +4,7 @@
  * A ring of 8 magnetic digital hall sensors 
  * attached to digital pins 3-10 are activated 
  * by a rotating magnet attached to vane shaft
- *  
+ * 
  */
 
 
@@ -13,23 +13,55 @@ int active = NULL;
 int lastActive = NULL;
 
 // pin order direction labels
-char d1[] = "NE";
-char d2[] = "SE";
-char d3[] = "E";
-char d4[] = "S";
-char d5[] = "N";
-char d6[] = "W";
-char d7[] = "NW";
-char d8[] = "SW";
+char d0[] = "NE";
+char d1[] = "SE";
+char d2[] = "E";
+char d3[] = "S";
+char d4[] = "N";
+char d5[] = "W";
+char d6[] = "NW";
+char d7[] = "SW";
 
-char * directionLabel[] = { d1, d2, d3, d4, d5, d6, d7, d8 };
+char * directionLabel[] = { d0, d1, d2, d3, d4, d5, d6, d7 };
 
+
+volatile int irqState = 0;
+
+void pin2IRQ()
+{
+  irqState = 1; 
+}
+
+ISR (PCINT0_vect)
+{
+  irqState = 1; 
+}
+
+ISR(PCINT2_vect)
+{
+  irqState = 1; 
+}
+
+void setupPinChangeInterrupt()
+{
+  cli();
+
+  // 1 – Turn on Pin Change Interrupts
+  PCICR |= 0b00000001;      // turn on port b (PCINT0 – PCINT7) pins D8 - D13
+  PCICR |= 0b00000100;      // turn on port d (PCINT16 – PCINT23) pins D0 - D7
+
+  // 2 – Choose Which Pins to Interrupt ( 3 mask registers correspond to 3 INT ports )
+  PCMSK0 |= 0b00000111;    // turn on pins D8,D9,D10
+  PCMSK2 |= 0b11111000;    // turn on pins D3 - D7 (PCINT19 - 23)
+
+  sei();                     // turn on interrupts
+
+}
 
 void setup() {
 
   Serial.begin(115200);
 
-  pinMode(3,INPUT_PULLUP);
   pinMode(4,INPUT_PULLUP);
   pinMode(5,INPUT_PULLUP);
   pinMode(6,INPUT_PULLUP);
@@ -37,6 +69,11 @@ void setup() {
   pinMode(8,INPUT_PULLUP);
   pinMode(9,INPUT_PULLUP);
   pinMode(10,INPUT_PULLUP);
+  pinMode(11,INPUT_PULLUP);
+
+  //setupPinChangeInterrupt();
+
+  attachInterrupt(0, pin2IRQ, FALLING);
 
 }
 
@@ -45,29 +82,31 @@ void loop() {
   int v;
   active = 0;
 
-  for(int i = 3; i <= 10; i++)
+  if (irqState == 1)
   {
-    v = digitalRead(i);
 
-    //Serial.print(v);
-    //Serial.print("    \t");
-
-    if (v == 0)
+    for(int i = 4; i <= 11; i++)
     {
-      active = i;
-      Serial.print(i);
-      Serial.print("\t");
-      Serial.println(directionLabel[i-3]);
-    }
-  }
-  if (active == 0) // magnet between sensor positions
-  {
-      Serial.print(lastActive);
-      Serial.print("\t");
-      Serial.println(directionLabel[lastActive-3]);
+      v = digitalRead(i);
     
+      if (v == 0)
+      {
+        active = i;
+        Serial.print(i);
+        Serial.print("\t");
+        Serial.println(directionLabel[i-3]);
+      }
+    }
+    if (active == 0) // magnet between sensor positions
+    {
+        Serial.print(lastActive);
+        Serial.print("\t");
+        Serial.println(directionLabel[lastActive-3]);
+      
+    }
+    lastActive = active;
+  
+    irqState = 0;
   }
-  lastActive = active;
 
-  delay(200);
 }
