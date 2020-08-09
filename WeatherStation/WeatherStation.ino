@@ -12,15 +12,15 @@
     Water Sensor
     SD Card Module
     LDR PhotoResistor 
-    6v 2.0watt 333mA Solar Panel
-    TP4056 Battery Charge Controller
-    2x Li-ion 3.7v 3600mAh Battery
 
   ESP8266 provides bidirectional serial IO for network cmd input and data logging
   
   Requires:
     https://github.com/steveio/AlarmSchedule
     https://github.com/steveio/RTCLib
+
+  Notes:
+    Hardware Serial buffer ( hardware/arduino/avr/cores/arduino/HardwareSerial.h ) increase to 256k
   
   This example code is in the public domain.
 */
@@ -35,6 +35,8 @@
 #include <ArduinoJson.h>
 #include <SPI.h>
 #include <SD.h>
+#include <SolarPosition.h>
+
 
 #include <AlarmSchedule.h>
 #include <avr/sleep.h>
@@ -125,6 +127,14 @@ int wSensorVal = 0;
 float h, tc, tf; 
 int h1;
 
+// SolarPosition
+const uint8_t digits = 3;
+
+// Lat/Long: Bournemouth 50.7192° N, 1.8808° W
+SolarPosition solarPosition(50.7192, 1.8808);
+
+SolarPosition_t solarPositionData;
+
 
 boolean lcd_active = 0;
 boolean sd_active = 0; // enable/disable SD Card Data Logging
@@ -164,34 +174,59 @@ void getLogFileName()
   sprintf(logFileName, "%02d%02d%02d.txt", dt.year(), dt.month(), dt.day());
 }
 
+/**
+ * Calculate Solar Elevation, Azimuth & Distance
+ */
+void getSolarPosition()
+{
+  solarPositionData = solarPosition.getSolarPosition();
+  printSolarPosition(solarPosition.getSolarPosition(), digits);
+}
+
+/** 
+ * Print a solar position to serial 
+ */
+void printSolarPosition(SolarPosition_t pos, int numDigits)
+{
+  Serial.println(F("Solar Position: "));
+
+  Serial.print(F("el: "));
+  Serial.print(pos.elevation, numDigits);
+  Serial.print(F(" deg,\t"));
+
+  Serial.print(F("az: "));
+  Serial.print(pos.azimuth, numDigits);
+  Serial.println(F(" deg"));
+}
 
 /**
  * Read Samples from Sensor Array
  */
 void sensorRead()
 {
-  readWater();
-  readLDR();
-  readDHT11();
-  readBMP180();
+  getWaterSensor();
+  getLDR();
+  getDHT11();
+  getBMP180();
+  getSolarPosition();
 }
 
 
-void readWater()
+void getWaterSensor()
 {
   wSensorVal = analogRead(wSensorPin);
   Serial.println("Water Sensor: ");
   Serial.println(wSensorVal, DEC);
 }
 
-void readLDR()
+void getLDR()
 {
   ldr_apin_val = analogRead(ldr_apin);
   Serial.println("Light Dependant Resistor (LDR): ");
   Serial.println(ldr_apin_val, DEC);
 }
 
-void readDHT11()
+void getDHT11()
 {
 
   Serial.println("DHT11: Temp, Humidity ");
@@ -219,7 +254,7 @@ void readDHT11()
   
 }
 
-void readBMP180()
+void getBMP180()
 {
 
     Serial.println("BMP180: Air Pressure ");
@@ -259,9 +294,6 @@ void readBMP180()
     bmpAlt = bmp.readAltitude(bmpPressure+60);
     Serial.print(bmpAlt);
     Serial.println(" meters");
-    
-    Serial.println();
-
 }
 
 void setup() {
@@ -304,15 +336,19 @@ void setup() {
   setInternalClock();
   setRTC(); // sync RTC clock w/ system time
 
+  SolarPosition::setTimeProvider(rtc.get);
+
   dt = rtc.get();
   ts = dt.unixtime(); // unix ts for logging
   sensorRead();
   serialiseJSON();
 
-  pinMode( RTC_INTERRUPT_PIN, INPUT_PULLUP);
-  pinMode( RX_INTERRUPT_PIN, INPUT_PULLUP);
+  pinMode(RTC_INTERRUPT_PIN, INPUT_PULLUP);
+  digitalWrite(RTC_INTERRUPT_PIN, HIGH);
+  attachInterrupt(0, wakeUpRTCAlarm, LOW);
+
   setAlarm();
-  //sleep();
+ 
 }
 
 
@@ -340,8 +376,11 @@ void loop() {
     sensorRead();
     serialiseJSON();
 
+    pinMode(RTC_INTERRUPT_PIN, INPUT_PULLUP);
+    digitalWrite(RTC_INTERRUPT_PIN, HIGH);
+    attachInterrupt(0, wakeUpRTCAlarm, LOW);
     setAlarm();
-    //sleep();
+
   }
 
 }
@@ -406,29 +445,31 @@ void LCDWrite(char *dt, char *tm,float tc, int h1, int lrd)
 void serialiseJSON()
 {
 
-  const size_t capacity = JSON_OBJECT_SIZE(12);
+  const size_t capacity = JSON_OBJECT_SIZE(20);
   
   DynamicJsonDocument doc(capacity);
-  
-  
+
   JsonObject data = doc.createNestedObject();
   data["ts"] = ts;
-  data["tempC"] = tc;
-  data["tempF"] = tf;
+  data["t"] = tc;
   data["h"] = h;
-  data["LDR"] = ldr_apin_val;
+  data["l"] = ldr_apin_val;
   data["p"] = bmpPressure;
-  data["tc2"] = bmpTempC;
+  data["t2"] = bmpTempC;
   data["a"] = bmpAlt;
   data["w"] = wSensorVal;
+  data["el"] = solarPositionData.elevation;
+  data["az"] = solarPositionData.azimuth;
 
   char json_string[256];
-  serializeJson(doc, json_string);
+  serializeJson(doc, json_string, 256);
 
   if (wifi_tx_active) {
-    Serial1.println(json_string);
+    Serial1.print(json_string);
     Serial1.println("\n");
     Serial1.flush();
+
+    Serial.println(json_string);
   }
 
   if (sd_active) {
@@ -694,7 +735,7 @@ void sleep()
   attachInterrupt(0, wakeUpRTCAlarm, LOW);
 
   pinMode(RX_INTERRUPT_PIN, INPUT_PULLUP);
-  attachInterrupt(1, wakeUpSerialRx, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(RX_INTERRUPT_PIN), wakeUpSerialRx, CHANGE);
 
   delay(500);
 
