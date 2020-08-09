@@ -10,6 +10,7 @@
  Notes -
   Watchdog timer is disabled using yeild() in rx loop
   Serial GPIO 3/1 RXD0/TXD0 is clear for sketch uploading
+  MQTT PubSubClient buffer size increase: MQTT_MAX_PACKET_SIZE 512
  
  To run mosquitto server on Linux Ubuntu:
  mosquitto_sub -h localhost -t esp8266.out
@@ -39,15 +40,17 @@ byte tx = 15; // GPIO 15 / D8
 SoftwareSerial s(rx,tx);
 
 const long baud_rate = 115200;
-const int rx_buffer_sz = 128;
+const int rx_buffer_sz = 512;
 char rx_buff[rx_buffer_sz];
 uint8_t rx_count;
 #define MSG_EOT 0x0A // LF \n 
 
-const char* ssid = "TALKTALK1F2294";
-const char* password = "R7EJNAK7";
 
-const char* mqtt_server = "192.168.1.127";
+const char* ssid = "__WiFi_AP__";
+const char* password = "__WIFI_PASS__";
+
+
+const char* mqtt_server = "192.168.43.185";
 const char* mqtt_channel_out = "esp8266.out";
 const char* mqtt_channel_in = "esp8266.in";
 
@@ -99,6 +102,7 @@ void callback(char* topic, byte* payload, unsigned int length) {
   }
   Serial.println();
   s.println("\n");
+  s.flush();
 
   digitalWrite(BUILTIN_LED, HIGH);  // Turn the LED off by making the voltage HIGH
 }
