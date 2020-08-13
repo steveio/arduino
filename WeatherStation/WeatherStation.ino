@@ -30,13 +30,13 @@
 #include <Time.h>
 #include <DateTime.h>
 #include <DHT.h>
-#include <LiquidCrystal.h>
+#include <LiquidCrystal_I2C.h>
 #include <Adafruit_BMP085.h>
 #include <ArduinoJson.h>
 #include <SPI.h>
 #include <SD.h>
 #include <SolarPosition.h>
-
+#include <sunMoon.h>
 
 #include <AlarmSchedule.h>
 #include <avr/sleep.h>
@@ -98,6 +98,10 @@ byte txPin = 18;
 
 DateTime dt;
 uint32_t ts;
+char dtm[32];
+
+// LCD i2C 
+LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 // SD Card - Data Logger
 File logFile;
@@ -131,12 +135,24 @@ int h1;
 const uint8_t digits = 3;
 
 // Lat/Long: Bournemouth 50.7192° N, 1.8808° W
-SolarPosition solarPosition(50.7192, 1.8808);
+#define LOC_latitude    50.7192
+#define LOC_longtitude  1.8808
+#define LOC_timezone    60        // UTC difference in minutes  
+
+SolarPosition solarPosition(LOC_latitude, LOC_longtitude);
 
 SolarPosition_t solarPositionData;
 
+sunMoon  sm;
 
-boolean lcd_active = 0;
+byte mDay;
+time_t sRiseT;
+time_t sSetT;
+char sRise[10];
+char sSet[10];
+
+
+boolean lcd_active = 1;
 boolean sd_active = 0; // enable/disable SD Card Data Logging
 boolean wifi_tx_active = 1; // transmit JSON over software serial to ESP8266
 
@@ -199,6 +215,26 @@ void printSolarPosition(SolarPosition_t pos, int numDigits)
   Serial.println(F(" deg"));
 }
 
+void getSunMoon()
+{
+  mDay = sm.moonDay();
+  sRiseT = sm.sunRise();
+  sSetT  = sm.sunSet();  
+
+  //day(sRiseT)
+
+  sprintf(sRise, "%02d:%02d:%02d",hour(sRiseT), minute(sRiseT), second(sRiseT));
+  sprintf(sSet, "%02d:%02d:%02d",hour(sSetT), minute(sSetT), second(sSetT));
+
+  Serial.print("Moon age is "); Serial.print(mDay); Serial.println(" day(s)");
+  Serial.print("Today sunrise and sunset: ");
+  Serial.print(sRise);
+  Serial.print(" / ");
+  Serial.print(sSet);
+  Serial.println("");
+}
+
+
 /**
  * Read Samples from Sensor Array
  */
@@ -209,6 +245,7 @@ void sensorRead()
   getDHT11();
   getBMP180();
   getSolarPosition();
+  getSunMoon();
 }
 
 
@@ -275,8 +312,10 @@ void getBMP180()
     if (bmp.readPressure() > hiThreshold)
     {
       Serial.println(" (High)");
-    } else {
+    } else if (bmp.readPressure() < lowThreshold)  {
       Serial.println(" (Low)");
+    } else {
+      Serial.println("");
     }
     
     // Calculate altitude assuming 'standard' barometric
@@ -291,7 +330,7 @@ void getBMP180()
 
     Serial.print("Real altitude = ");
     //Serial.print(bmp.readAltitude(101501));
-    bmpAlt = bmp.readAltitude(bmpPressure+60);
+    bmpAlt = bmp.readAltitude(bmpPressure);
     Serial.print(bmpAlt);
     Serial.println(" meters");
 }
@@ -314,6 +353,10 @@ void setup() {
   Serial.println("Weather Station: Begin\n");
   Serial1.println("Arduino Mega2560 Weather Station Begin!");
 
+  lcd.init();
+  lcd.backlight();
+
+
   pinMode(ldr_apin,INPUT);
   pinMode(ldr_apin,INPUT);
 
@@ -333,8 +376,9 @@ void setup() {
   Serial.println(__TIME__);
 
   DateTime arduino_t = DateTime(__DATE__, __TIME__);
-  setInternalClock();
-  setRTC(); // sync RTC clock w/ system time
+  setSyncProviderRTC();
+
+  sm.init(LOC_timezone, LOC_latitude, LOC_longtitude);
 
   SolarPosition::setTimeProvider(rtc.get);
 
@@ -357,7 +401,6 @@ void loop() {
   dt = rtc.get();
   ts = dt.unixtime(); // unix ts for logging
 
-  char dtm[32];
   sprintf(dtm, "%02d/%02d/%02d %02d:%02d:%02d" , dt.day(),dt.month(),dt.year(),dt.hour(),dt.minute(),dt.second());
 
   if (serialRxInteruptState == 1)
@@ -375,6 +418,7 @@ void loop() {
 
     sensorRead();
     serialiseJSON();
+    LCDWrite();
 
     pinMode(RTC_INTERRUPT_PIN, INPUT_PULLUP);
     digitalWrite(RTC_INTERRUPT_PIN, HIGH);
@@ -386,55 +430,129 @@ void loop() {
 }
 
 
-void LCDWrite(char *dt, char *tm,float tc, int h1, int lrd)
+void LCDWrite()
 {
 
-    LiquidCrystal lcd(12, 11, 5, 4, 3, 2);
+  /*
+  data["ts"] = ts;
+  data["t"] = tc;
+  data["h"] = h;
+  data["l"] = ldr_apin_val;
+  data["p"] = bmpPressure;
+  data["t2"] = bmpTempC;
+  data["a"] = bmpAlt;
+  data["w"] = wSensorVal;
+  data["el"] = solarPositionData.elevation;
+  data["az"] = solarPositionData.azimuth;
+  data["lat"] = LOC_latitude;
+  data["lon"] = LOC_longtitude;
+  data["sr"] = sRise;
+  data["ss"] = sSet;
+  data["mn"] = mDay;
+  */
 
-    lcd.begin(16, 2);
-
-    /*
-    lcd.print("Initializing");
-    for(int i=0; i<3; i++)
-    {
-      lcd.print(".");
-      delay(1000);
-    }
-    */
+    long d = 5000;
 
     lcd.clear();
     lcd.setCursor(0, 0);
-    lcd.print(dt);
-    lcd.print(" ");
-    lcd.print(tm);
+
+    char buff[12];
+    sprintf(buff, "%02d/%02d/%02d" , dt.day(),dt.month(),dt.year());
+    lcd.print(buff);
 
     lcd.setCursor(0, 1);
+    sprintf(buff, "%02d:%02d:%02d" , dt.hour(),dt.minute(),dt.second());
+    lcd.print(buff);
 
-    lcd.print(tc,2);
-    lcd.print((char)223);
-    lcd.setCursor(7,1);
-    lcd.print(h1);
+
+    delay(3000);
+
+    lcd.clear();
+    lcd.setCursor(0, 0);
+
+    lcd.print("Temp / Humidity");
+
+    lcd.setCursor(0, 1);
+    float temp = (tc + bmpTempC) / 2;
+    lcd.print(temp,2);
+    lcd.print((char)223); lcd.print("C  ");
+    lcd.print(h);
     lcd.print("%");
-    lcd.print(" ");
-    lcd.print(lrd,DEC);
 
-    /*
-    delay(5000);
+    delay(d);
     lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("PhotoResistor: ");
-    lcd.setCursor(0, 1);
-    lcd.print(lrd,DEC);
-    lcd.print(" : ");
-  
-    if (ldr_adjusted < ldr_daynight_threshold)
-    {
-      lcd.print(F("Day"));
-    } else {
-      lcd.print(F("Night")); 
-    }
-    */
 
+    lcd.setCursor(0, 0);
+    lcd.print("Air Pressure");
+    lcd.setCursor(0, 1);
+    lcd.print(bmpPressure / 100);
+    lcd.print(" Pa");
+
+
+    delay(d);
+    lcd.clear();
+
+    lcd.setCursor(0, 0);
+    lcd.print("Light   Water");
+    lcd.setCursor(0, 1);
+    int l = ((float) ldr_apin_val  / 1024) * 100;
+    lcd.print(l,DEC);
+    lcd.print("%  ");
+
+    lcd.setCursor(8, 1);
+    int w = ((float) wSensorVal  / 1024) * 100;
+    lcd.print(wSensorVal);
+    lcd.print("% ");
+
+    delay(d);
+    lcd.clear();
+
+    lcd.setCursor(0, 0);
+    lcd.print("Sun Position");
+
+    lcd.setCursor(0, 1);
+    lcd.print(solarPositionData.azimuth,2);
+    lcd.print((char)223);
+    lcd.print("  ");
+    lcd.print(solarPositionData.elevation,2);
+    lcd.print((char)223);
+
+    delay(d+2000);
+    lcd.clear();
+
+    lcd.setCursor(0, 0);
+    lcd.print("Sunrise");
+    lcd.setCursor(0, 1);
+    lcd.print(sRise);
+
+    delay(d);
+    lcd.clear();
+
+    lcd.setCursor(0, 0);
+    lcd.print("Sunset");
+    lcd.setCursor(0, 1);
+    lcd.print(sSet);
+
+    delay(d);
+    lcd.clear();
+
+    lcd.setCursor(0, 0);
+    lcd.print("Moon Phase");
+    lcd.setCursor(0, 1);
+    lcd.print(mDay);
+
+    delay(d);
+    lcd.clear();
+
+    lcd.setCursor(0, 0);
+    lcd.print("Temp / Humidity");
+    lcd.setCursor(0, 1);
+    lcd.print(temp,2);
+    lcd.print((char)223); lcd.print("C  ");
+    lcd.print(h);
+    lcd.print("%");
+
+    delay(d);
 }
 
 /**
@@ -460,6 +578,11 @@ void serialiseJSON()
   data["w"] = wSensorVal;
   data["el"] = solarPositionData.elevation;
   data["az"] = solarPositionData.azimuth;
+  data["lat"] = LOC_latitude;
+  data["lon"] = LOC_longtitude;
+  data["sr"] = sRise;
+  data["ss"] = sSet;
+  data["mn"] = mDay;
 
   char json_string[256];
   serializeJson(doc, json_string, 256);
@@ -683,7 +806,7 @@ void setInternalClock()
  */
 void setSyncProviderRTC()
 {
-    setSyncProvider( syncProviderRTC ); // identify the external time provider
+    setSyncProvider( rtc.get ); // identify the external time provider
     time_t sync_interval = 60*60*24; // once a day
     setSyncInterval(sync_interval); // set the number of seconds between re-sync
 
