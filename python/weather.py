@@ -191,7 +191,7 @@ ax[1].legend();
 
 #  Air Pressure - hourly / daily average
 
-fig, ax = plt.subplots(2)
+fig, ax = plt.subplots(3)
 
 ax[0].plot(df_hourly_mean['p'],marker='.', linestyle='-', linewidth=0.5, label='Avg Pressure (hourly)')
 ax[0].plot(df_daily_mean['p'],marker='.', linestyle='-', linewidth=0.5, label='Avg Pressure (daily)')
@@ -244,16 +244,16 @@ df_p_3h_mean_pct_f = df_p_3h_mean_pct.to_frame()
 ### Compute sequences of consequetively increasing or decreasing (falling) air pressure
 
 h = df_p_3h_mean_pct_f['p'].gt(0)
+
+### monotonic (increasing)
 ##h = np.sign(df_p_3h_mean['p'])
 ##print h
-df_p_3h_mean_pct_f['monotonic']=h.groupby(h.ne(h.shift()).cumsum()).cumcount().add(1).where(h,0)
+###df_p_3h_mean_pct_f['monotonic']=h.groupby(h.ne(h.shift()).cumsum()).cumcount().add(1).where(h,0)
+###print(df_p_3h_mean_pct_f)
+###print(df_p_3h_mean_pct_f['monotonic'].max())
+###print(df_p_3h_mean_pct_f['monotonic'].sum())
 
-print(df_p_3h_mean_pct_f)
-
-print(df_p_3h_mean_pct_f['monotonic'].max())
-print(df_p_3h_mean_pct_f['monotonic'].sum())
-
-
+### monotonic (increasing / decreasing)
 df_p_3h_mean_pct_f = df_p_3h_mean_pct_f.join( h.groupby(h.ne(h.shift()).cumsum()).cumcount().add(1)
                .to_frame('values')
                .assign(monotic = np.where(h,'monotic_greater_0',
@@ -265,8 +265,6 @@ df_p_3h_mean_pct_f = df_p_3h_mean_pct_f.join( h.groupby(h.ne(h.shift()).cumsum()
                             values = 'values',
                             fill_value=0) )
 
-print(df_p_3h_mean_pct_f)
-
 ### sum() quantifies amount of increase / decrease occuring in period
 ### max indicates duration (length) of consequetive increase / decrease
 
@@ -275,6 +273,12 @@ print(df_p_3h_mean_pct_f['monotic_greater_0'].sum())
 
 print(df_p_3h_mean_pct_f['monotic_not_greater_0'].max())
 print(df_p_3h_mean_pct_f['monotic_not_greater_0'].sum())
+
+
+width = 0.15
+ax[2].bar(df_p_3h_mean_pct_f.index,df_p_3h_mean_pct_f['monotic_greater_0'],width,label='Rising')
+ax[2].bar(df_p_3h_mean_pct_f.index,df_p_3h_mean_pct_f['monotic_not_greater_0'],width,label='Falling')
+ax[2].legend(loc='best')
 
 
 
