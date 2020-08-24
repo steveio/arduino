@@ -60,7 +60,6 @@ def load_json_data(filepath, frames, df_stat):
         frames.append(df)
         return df_stat
 
-
 ### process n days datafiles
 for f in files:
     filename = path+f
@@ -73,6 +72,7 @@ for f in files:
 
 
 df = pd.concat(frames)
+
 
 ### convert timestamp to python datetime, index & sort
 df.sort_values(by='ts', ascending=True)
@@ -189,7 +189,7 @@ ax[1].set_ylabel('')
 ax[1].legend();
 
 
-#  Air Pressure - hourly average, daily avg, min, max
+#  Air Pressure - hourly / daily average
 
 fig, ax = plt.subplots(2)
 
@@ -222,21 +222,60 @@ ax[1].legend();
 
 # resample last 48 hours, 3 hour intervals
 end_dt = datetime.now()
-start_dt  = datetime.now() - timedelta(hours=48)
+start_dt  = datetime.now() - timedelta(hours=160)
 
 start_dt = start_dt.strftime("%Y-%m-%d %H:%M:%S")
 end_dt = end_dt.strftime("%Y-%m-%d %H:%M:%S")
 
 df_temp_3h_mean = df.loc[start_dt:end_dt]['t'].resample('3H').mean()
 df_h_3h_mean = df.loc[start_dt:end_dt]['h'].resample('3H').mean()
-df_p_3h_mean = df.loc[start_dt:end_dt]['p'].resample('3H').mean()
 
 # Air Pressure - Magnitude & Rate of change
 
-# 1st derivative, quantity of change
+df_p_3h_mean = df.loc[start_dt:end_dt]['p'].resample('3H').mean()
+
+# 1st derivative, magnitude (quantity) of change
 df_p_3h_mean_pct = df_p_3h_mean.pct_change()*np.sign(df_p_3h_mean.shift(periods=1))
 # 2nd derivative, rate of change
-df_p_3h_mean_pct_2d = df_p_3h_mean_pct.pct_change()*np.sign(df_p_3h_mean_pct.shift(periods=1))
+df_p_3h_mean_pct_2d = df_p_3h_mean_pct.pct_change()*np.sign(df_p_3h_mean.shift(periods=1))
+
+df_p_3h_mean_pct_f = df_p_3h_mean_pct.to_frame()
+
+### Compute sequences of consequetively increasing or decreasing (falling) air pressure
+
+h = df_p_3h_mean_pct_f['p'].gt(0)
+##h = np.sign(df_p_3h_mean['p'])
+##print h
+df_p_3h_mean_pct_f['monotonic']=h.groupby(h.ne(h.shift()).cumsum()).cumcount().add(1).where(h,0)
+
+print(df_p_3h_mean_pct_f)
+
+print(df_p_3h_mean_pct_f['monotonic'].max())
+print(df_p_3h_mean_pct_f['monotonic'].sum())
+
+
+df_p_3h_mean_pct_f = df_p_3h_mean_pct_f.join( h.groupby(h.ne(h.shift()).cumsum()).cumcount().add(1)
+               .to_frame('values')
+               .assign(monotic = np.where(h,'monotic_greater_0',
+                                          'monotic_not_greater_0'),
+                       index = lambda x: x.index)
+               .where(df_p_3h_mean_pct_f['p'].notna())
+               .pivot_table(columns = 'monotic',
+                            index = 'index',
+                            values = 'values',
+                            fill_value=0) )
+
+print(df_p_3h_mean_pct_f)
+
+### sum() quantifies amount of increase / decrease occuring in period
+### max indicates duration (length) of consequetive increase / decrease
+
+print(df_p_3h_mean_pct_f['monotic_greater_0'].max())
+print(df_p_3h_mean_pct_f['monotic_greater_0'].sum())
+
+print(df_p_3h_mean_pct_f['monotic_not_greater_0'].max())
+print(df_p_3h_mean_pct_f['monotic_not_greater_0'].sum())
+
 
 
 fig, ax = plt.subplots(3)
@@ -246,12 +285,15 @@ ax[0].plot(df_temp_3h_mean,marker='.', linestyle='-', linewidth=0.5, label='Temp
 ax[0].set_title('Temperature (Celcuis) 3 hour mean')
 ax[0].set_ylabel('')
 ax[0].legend();
+ax[0].xaxis.set_major_formatter(mdates.DateFormatter('%b %d %H:%M'))
 
 ### Humidity
 ax[1].plot(df_h_3h_mean,marker='.', linestyle='-', linewidth=0.5, label='Humidity (3 hour mean)')
 ax[1].set_title('Humidity 3 hour mean')
 ax[1].set_ylabel('')
 ax[1].legend();
+ax[1].xaxis.set_major_formatter(mdates.DateFormatter('%b %d %H:%M'))
+
 
 ### Barometric Pressure
 ax[2].plot(df_p_3h_mean,marker='.', linestyle='-', linewidth=0.5, label='Air Pressure (3 hour mean)')
@@ -260,30 +302,36 @@ ax[2].set_ylabel('')
 ax[2].legend();
 ax[2].axhline(y=102268.9, color='r', linestyle='-', label="High Pressure")
 ax[2].axhline(y=100914.4, color='b', linestyle='-', label="Low Pressure")
-
+ax[2].xaxis.set_major_formatter(mdates.DateFormatter('%b %d %H:%M'))
 
 # Barometric Pressure 3 hour mean, % change, rate of change
 
 fig, ax = plt.subplots(3)
 
 ax[0].plot(df_p_3h_mean,marker='.', linestyle='-', linewidth=0.5, label='Air Pressure (3 hour mean)')
-ax[0].set_title('Air Pressure (Pascals) 3 hour mean')
+ax[0].set_title('Air Pressure (Pascals) - % Change')
 ax[0].set_ylabel('')
 ax[0].legend();
 ax[0].axhline(y=102268.9, color='r', linestyle='-', label="High Pressure")
 ax[0].axhline(y=100914.4, color='b', linestyle='-', label="Low Pressure")
+ax[0].xaxis.set_major_formatter(mdates.DateFormatter('%b %d %H:%M'))
+
 
 # 1st derivative, % change
 ax[1].plot(df_p_3h_mean_pct,marker='.', linestyle='-', linewidth=0.5, label='Pressure (3h mean % change)')
-ax[1].set_title('Air Pressure (Pascals) 3 hour mean % change')
+ax[1].set_title('Air Pressure (Pascals) - Rate of Change')
 ax[1].set_ylabel('')
 ax[1].legend();
+ax[1].xaxis.set_major_formatter(mdates.DateFormatter('%b %d %H:%M'))
+
 
 # 2nd derivative, rate of change
 ax[2].plot(df_p_3h_mean_pct_2d,marker='.', linestyle='-', linewidth=0.5, label='Pressure (3h mean % change rate)')
 ax[2].set_title('Air Pressure % Change')
 ax[2].set_ylabel('')
 ax[2].legend();
+ax[2].xaxis.set_major_formatter(mdates.DateFormatter('%b %d %H:%M'))
+
 
 ### display charts
 plt.show()
