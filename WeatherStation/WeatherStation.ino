@@ -137,7 +137,10 @@ const uint8_t digits = 3;
 
 // Lat/Long: Bournemouth 50.7192° N, 1.8808° W
 #define LOC_latitude    50.7192
-#define LOC_longtitude  1.8808
+#define LOC_longtitude  -1.8808
+
+
+
 #define LOC_timezone    60        // UTC difference in minutes  
 
 SolarPosition solarPosition(LOC_latitude, LOC_longtitude);
@@ -882,6 +885,11 @@ void setInternalClock()
 void setSyncProviderRTC()
 {
     setSyncProvider( rtc.get ); // identify the external time provider
+    if (timeStatus() != timeSet) 
+      Serial.println("Unable to sync with the RTC");
+    else
+      Serial.println("RTC has set the system time");
+
     time_t sync_interval = 60*60*24; // once a day
     setSyncInterval(sync_interval); // set the number of seconds between re-sync
 
