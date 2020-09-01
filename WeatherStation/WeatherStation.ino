@@ -116,6 +116,8 @@ DHT dht(dht_apin, DHT11);
 // BMP180 Barometric Pressure
 Adafruit_BMP085 bmp;
 float bmpPressure, bmpTempC, bmpAlt = 0;
+float hiThreshold = 102268.9; // Pa / 30.20 inHg
+float lowThreshold = 100914.4; // Pa / 30.20 inHg
 
 // LDR - Light Dependant Resistor (S)A0, VCC, -GND, 
 int ldr_apin = A1;
@@ -129,7 +131,6 @@ int wSensorVal = 0;
 
 // DHT11 humidity, temp c, temp f
 float h, tc, tf; 
-int h1;
 
 // SolarPosition
 const uint8_t digits = 3;
@@ -151,9 +152,85 @@ time_t sSetT;
 char sRise[10];
 char sSet[10];
 
+char mp0[] = "New Moon";
+char mp1[] = "Waxing Crescent";
+char mp2[] = "First Quarter";
+char mp3[] = "Waxing Gibbous";
+char mp4[] = "Full Moon";
+char mp5[] = "Waning Gibbous";
+char mp6[] = "Last Quarter";
+char mp7[] = "Waning Crescent";
 
+char * moonPhaseLabel[] = {mp0, mp1, mp2, mp3, mp4, mp5, mp6, mp7};
+
+int moonPhaseId[29]=
+{
+  0, 1, 1, 1, 1, 1, 2, 3, 3, 3, 3, 3, 3, 3, 4, 5, 6, 6, 6, 6, 6, 6, 6, 7, 8, 8, 8, 8, 8
+};
+
+
+
+// @todo - Daily Hi/Low & simple moving averages
+
+int currDay = dt.day();
+
+// Air Pressure Avg - 10 * 1 minute / 18 * 10 minute / 6 * 3 hour
+float avgP[10];
+float avgP10Min[18];
+float avgP3Hour[8];
+
+int avgPCount = 0;
+int avgP10MinCount = 0;
+int avgP3HourCount = 0;
+
+// Temperature / Humidity / Air Pressure 7 Day (0 = Sun - 6 = Sat) Hi/Low
+float hiT[6];
+float loT[6];
+float hiH[6];
+float loH[6];
+float hiP[6];
+float loP[6];
+
+
+// compute simple average from array of values
+float computeAvg(float v[], uint8_t sz)
+{
+  // compute average
+  float sum = 0, avg;
+  for(int i = 0; i<sz; i++)
+  {
+    sum += v[i];
+  }
+  return avg = sum / sz;
+}
+
+// find max from array of values
+float computeMax(float v[], uint8_t sz)
+{
+  float m = 0;
+  for(int i = 0; i<sz; i++)
+  {
+    m = (v[i] > m) ? v[i] : m;
+  }
+  return m;
+}
+
+// find max from array of values
+float computeMin(float v[], uint8_t sz)
+{
+  float m = 0;
+  for(int i = 0; i<sz; i++)
+  {
+    m = (v[i] < m) ? v[i] : m;
+  }
+  return m;
+}
+
+
+
+// Module Config
 boolean lcd_active = 1;
-boolean sd_active = 0; // enable/disable SD Card Data Logging
+boolean sd_active = 1; // enable/disable SD Card Data Logging
 boolean wifi_tx_active = 1; // transmit JSON over software serial to ESP8266
 
 
@@ -173,22 +250,14 @@ void setWifiTx(boolean b)
 }
 
 /**
- * Schedule RTC Alarm every minute at :00 secs
+ * Schedule RTC Alarm
  */
 void setAlarm()
 {
-  Serial.println("setAlarm");
-  als.setAlarm( ALM1_MATCH_SECONDS, 30, 0, 0, 0, 0);
+  Serial.println("setAlarm() - every minute at :00 secs");
+  als.setAlarm( ALM1_MATCH_SECONDS, 00, 0, 0, 0, 0);
 }
 
-
-/**
- * Get dated log filename in format YYYYMMDD.txt
- */
-void getLogFileName()
-{
-  sprintf(logFileName, "%02d%02d%02d.txt", dt.year(), dt.month(), dt.day());
-}
 
 /**
  * Calculate Solar Elevation, Azimuth & Distance
@@ -223,11 +292,13 @@ void getSunMoon()
 
   //day(sRiseT)
 
-  sprintf(sRise, "%02d:%02d:%02d",hour(sRiseT), minute(sRiseT), second(sRiseT));
-  sprintf(sSet, "%02d:%02d:%02d",hour(sSetT), minute(sSetT), second(sSetT));
+  sprintf(sRise, "%02d:%02d",hour(sRiseT), minute(sRiseT));
+  sprintf(sSet, "%02d:%02d",hour(sSetT), minute(sSetT));
 
   Serial.print("Moon age is "); Serial.print(mDay); Serial.println(" day(s)");
-  Serial.print("Today sunrise and sunset: ");
+  Serial.print("Moon Phase: "); Serial.println(moonPhaseLabel[moonPhaseId[mDay-1]]);
+  
+  Serial.print("Sunrise and sunset: ");
   Serial.print(sRise);
   Serial.print(" / ");
   Serial.print(sSet);
@@ -280,15 +351,48 @@ void getDHT11()
     Serial.println("DHT11 Sensor ERROR");
   }
 
-  h1 = floor(h*1000)/1000; 
-
   Serial.println("Humidity:");
-  Serial.println(h1);
+  Serial.println(h);
   Serial.println("Temperature (celsuis):");
   Serial.println(tc);
   Serial.println("Temperature (fahrenheit):");
   Serial.println(tf);
-  
+
+
+  Serial.println(dt.dayOfTheWeek());
+
+}
+
+// Maintain Metrics: daily hi/low/average
+void updateDailyStats()
+{
+  if (tc > hiT[dt.dayOfTheWeek()])
+  {
+    hiT[dt.dayOfTheWeek()] = tc;
+  }
+  if (tc < loT[dt.dayOfTheWeek()])
+  {
+    loT[dt.dayOfTheWeek()] = tc;
+  }
+
+  if (h > hiH[dt.dayOfTheWeek()])
+  {
+    hiH[dt.dayOfTheWeek()] = h;
+  }
+  if (h < loH[dt.dayOfTheWeek()])
+  {
+    loH[dt.dayOfTheWeek()] = h;
+  }
+
+  if (bmpPressure > hiP[dt.dayOfTheWeek()])
+  {
+    hiP[dt.dayOfTheWeek()] = bmpPressure;
+  }
+  if (bmpPressure < loP[dt.dayOfTheWeek()])
+  {
+    loP[dt.dayOfTheWeek()] = bmpPressure;
+  }
+
 }
 
 void getBMP180()
@@ -306,18 +410,15 @@ void getBMP180()
     Serial.print(bmpPressure);
     Serial.print(" Pa");
 
-    float hiThreshold = 102268.9; // Pa / 30.20 inHg
-    float lowThreshold = 100914.4; // Pa / 30.20 inHg
-
-    if (bmp.readPressure() > hiThreshold)
+    if (bmpPressure > hiThreshold)
     {
       Serial.println(" (High)");
-    } else if (bmp.readPressure() < lowThreshold)  {
+    } else if (bmpPressure < lowThreshold)  {
       Serial.println(" (Low)");
     } else {
       Serial.println("");
     }
-    
+
     // Calculate altitude assuming 'standard' barometric
     // pressure of 1013.25 millibar = 101325 Pascal
     Serial.print("Altitude = ");
@@ -335,99 +436,6 @@ void getBMP180()
     Serial.println(" meters");
 }
 
-void setup() {
-
-  Serial.begin(baud_rate);
-  Serial1.begin(baud_rate);
-
-  pinMode(LED_BUILTIN, OUTPUT);
-
-  pinMode(rxPin,INPUT);
-  pinMode(txPin,OUTPUT);
-
-  pinMode(mosfetPin, OUTPUT);
-  digitalWrite(mosfetPin, HIGH);
-
-  delay(3000);
-
-  Serial.println("Weather Station: Begin\n");
-  Serial1.println("Arduino Mega2560 Weather Station Begin!");
-
-  lcd.init();
-  lcd.backlight();
-
-
-  pinMode(ldr_apin,INPUT);
-  pinMode(ldr_apin,INPUT);
-
-  dht.begin();
-
-  bmp.begin();
-
-  Serial.println("RTCDS3231 Begin!");
-
-  pinMode(RTC_SDA_PIN, INPUT);
-  pinMode(RTC_SCL_PIN, INPUT);
-  rtc.begin();
-
-  DateTime rtc_t = rtc.get();
-
-  Serial.println(__DATE__);
-  Serial.println(__TIME__);
-
-  DateTime arduino_t = DateTime(__DATE__, __TIME__);
-  setSyncProviderRTC();
-
-  sm.init(LOC_timezone, LOC_latitude, LOC_longtitude);
-
-  SolarPosition::setTimeProvider(rtc.get);
-
-  dt = rtc.get();
-  ts = dt.unixtime(); // unix ts for logging
-  sensorRead();
-  serialiseJSON();
-
-  pinMode(RTC_INTERRUPT_PIN, INPUT_PULLUP);
-  digitalWrite(RTC_INTERRUPT_PIN, HIGH);
-  attachInterrupt(0, wakeUpRTCAlarm, LOW);
-
-  setAlarm();
- 
-}
-
-
-void loop() {
-
-  dt = rtc.get();
-  ts = dt.unixtime(); // unix ts for logging
-
-  sprintf(dtm, "%02d/%02d/%02d %02d:%02d:%02d" , dt.day(),dt.month(),dt.year(),dt.hour(),dt.minute(),dt.second());
-
-  if (serialRxInteruptState == 1)
-  {
-    Serial.println("ISR Serial RX");
-    serialRxInteruptState = 0;
-  }
-  readSerialInput();
-
-  if (interuptState == 1) // ISR called
-  {
-    Serial.println("ISR RTC Alarm");
-    Serial.println(dtm);
-    interuptState = 0;
-
-    sensorRead();
-    serialiseJSON();
-    LCDWrite();
-
-    pinMode(RTC_INTERRUPT_PIN, INPUT_PULLUP);
-    digitalWrite(RTC_INTERRUPT_PIN, HIGH);
-    attachInterrupt(0, wakeUpRTCAlarm, LOW);
-    setAlarm();
-
-  }
-
-}
 
 
 void LCDWrite()
@@ -488,6 +496,12 @@ void LCDWrite()
     lcd.print(bmpPressure / 100);
     lcd.print(" Pa");
 
+    if (bmpPressure > hiThreshold)
+    {
+      lcd.print(" (Hi)");
+    } else if (bmpPressure < lowThreshold)  {
+      lcd.print(" (Lo)");
+    }
 
     delay(d);
     lcd.clear();
@@ -495,12 +509,12 @@ void LCDWrite()
     lcd.setCursor(0, 0);
     lcd.print("Light   Water");
     lcd.setCursor(0, 1);
-    int l = ((float) ldr_apin_val  / 1024) * 100;
+    int l = ((float) (1024 - ldr_apin_val)  / 1024) * 100;
     lcd.print(l,DEC);
     lcd.print("%  ");
 
     lcd.setCursor(8, 1);
-    int w = ((float) wSensorVal  / 1024) * 100;
+    int w = (((float) (1024 - wSensorVal)  / 1024) * 100) - 100;
     lcd.print(wSensorVal);
     lcd.print("% ");
 
@@ -521,16 +535,10 @@ void LCDWrite()
     lcd.clear();
 
     lcd.setCursor(0, 0);
-    lcd.print("Sunrise");
+    lcd.print("Sun Rise / Set");
     lcd.setCursor(0, 1);
     lcd.print(sRise);
-
-    delay(d);
-    lcd.clear();
-
-    lcd.setCursor(0, 0);
-    lcd.print("Sunset");
-    lcd.setCursor(0, 1);
+    lcd.print(" ");
     lcd.print(sSet);
 
     delay(d);
@@ -538,21 +546,15 @@ void LCDWrite()
 
     lcd.setCursor(0, 0);
     lcd.print("Moon Phase");
-    lcd.setCursor(0, 1);
+    lcd.print(" (");
     lcd.print(mDay);
+    lcd.print(")");
+
+    lcd.setCursor(0, 1);
+    lcd.print(moonPhaseLabel[moonPhaseId[mDay-1]]);    
 
     delay(d);
     lcd.clear();
-
-    lcd.setCursor(0, 0);
-    lcd.print("Temp / Humidity");
-    lcd.setCursor(0, 1);
-    lcd.print(temp,2);
-    lcd.print((char)223); lcd.print("C  ");
-    lcd.print(h);
-    lcd.print("%");
-
-    delay(d);
 }
 
 /**
@@ -587,7 +589,7 @@ void serialiseJSON()
   char json_string[256];
   serializeJson(doc, json_string, 256);
 
-  if (wifi_tx_active) {
+  if (wifi_tx_active) {\
     Serial1.print(json_string);
     Serial1.println("\n");
     Serial1.flush();
@@ -599,10 +601,25 @@ void serialiseJSON()
     SDCardWrite(json_string);
   }
 
+  if (lcd_active)
+  {
+    LCDWrite();
+  }
+
 }
 
+/**
+ * Get dated log filename in format YYYYMMDD.txt
+ */
+void getLogFileName()
+{
+  sprintf(logFileName, "%02d%02d%02d.txt", dt.year(), dt.month(), dt.day());
+}
 
-void SDCardWrite(char * json_string)
+/**
+ * Write data to SD Card
+ */
+void SDCardWrite(char * str)
 {
 
   if (!SD.begin()) {
@@ -611,17 +628,13 @@ void SDCardWrite(char * json_string)
   }
 
   getLogFileName();
-  //Serial.print("SD Log File: ");
-  //Serial.println(logFileName);
 
   logFile = SD.open(logFileName, FILE_WRITE);
 
-  if (logFile) {
-
-    Serial.println(json_string);
-    logFile.println(json_string);
+  if (logFile) 
+  {
+    logFile.println(str);
     logFile.close();
-
     Serial.println("SD write OK.");
 
   } else {
@@ -630,6 +643,59 @@ void SDCardWrite(char * json_string)
 
 }
 
+/**
+ * Read datafile from SD card and tx to Serial 
+ */
+void SDCardRead(char * filename)
+{
+  logFile = SD.open(filename);
+
+  Serial.print("SD read ");
+  Serial.println(filename);
+
+  Serial1.begin(baud_rate);
+  Serial1.println("\n");
+  Serial1.flush();
+
+  long lines = 0;
+ 
+  if (logFile) {
+
+    logFile.seek(0);
+    char cr;
+
+    while (logFile.available()) {
+
+      rx_count = 0;
+      clearRxBuffer(rx_buffer);
+
+      while(true){
+
+        cr = logFile.read();
+        rx_buffer[rx_count++] = cr;
+
+        if(cr == '\n'){
+          Serial.println(rx_buffer);
+          Serial1.println(rx_buffer);
+          Serial1.flush();
+          delay(500);
+          lines++;
+          break;
+        }
+      }
+
+    }
+
+    Serial.print("Read lines: ");
+    Serial.print(lines);
+    Serial.println("... Ok");
+
+    logFile.close();
+
+  } else {
+    Serial.print("SD File open error");
+  }
+}
 
 /**
  * Read Char data from Serial input
@@ -722,7 +788,16 @@ void processCmd(char * rx_buffer)
         serialiseJSON();
         break;
     case CMD_SEND_SSD :
+        // read SSD data file and tx to serial 4 mqtt relay
         Serial.println("Cmd: Send SSD data");
+        // disable interupts, to prevent timer sensor read / data tx
+        cli();
+        // extract requested filename
+        char * filename = (char *)doc["d"];
+        // read file from SD card and TX to serial
+        SDCardRead(filename);
+        // enable interupts to resume scheduled data logging
+        sei(); 
         break;
     case CMD_SENS_FREQ :
         Serial.print("Cmd: Set Sample Freq");
@@ -901,4 +976,97 @@ void wakeUp()
   Serial1.println(" \n");
 
   delay(2000);
+}
+
+void setup() {
+
+  Serial.begin(baud_rate);
+  Serial1.begin(baud_rate);
+
+  pinMode(LED_BUILTIN, OUTPUT);
+
+  pinMode(rxPin,INPUT);
+  pinMode(txPin,OUTPUT);
+
+  pinMode(mosfetPin, OUTPUT);
+  digitalWrite(mosfetPin, HIGH);
+
+  delay(3000);
+
+  Serial.println("Weather Station: Begin\n");
+  Serial1.println("Arduino Mega2560 Weather Station Begin!");
+
+  lcd.init();
+  lcd.backlight();
+
+
+  pinMode(ldr_apin,INPUT);
+  pinMode(ldr_apin,INPUT);
+
+  dht.begin();
+
+  bmp.begin();
+
+  Serial.println("RTCDS3231 Begin!");
+
+  pinMode(RTC_SDA_PIN, INPUT);
+  pinMode(RTC_SCL_PIN, INPUT);
+  rtc.begin();
+
+  DateTime rtc_t = rtc.get();
+
+  Serial.println(__DATE__);
+  Serial.println(__TIME__);
+
+  DateTime arduino_t = DateTime(__DATE__, __TIME__);
+  setSyncProviderRTC();
+
+  sm.init(LOC_timezone, LOC_latitude, LOC_longtitude);
+
+  SolarPosition::setTimeProvider(rtc.get);
+
+  dt = rtc.get();
+  ts = dt.unixtime(); // unix ts for logging
+  sensorRead();
+  serialiseJSON();
+
+  pinMode(RTC_INTERRUPT_PIN, INPUT_PULLUP);
+  digitalWrite(RTC_INTERRUPT_PIN, HIGH);
+  attachInterrupt(0, wakeUpRTCAlarm, LOW);
+
+  setAlarm();
+ 
+}
+
+
+void loop() {
+
+  dt = rtc.get();
+  ts = dt.unixtime(); // unix ts for logging
+
+  sprintf(dtm, "%02d/%02d/%02d %02d:%02d:%02d" , dt.day(),dt.month(),dt.year(),dt.hour(),dt.minute(),dt.second());
+
+  if (serialRxInteruptState == 1)
+  {
+    Serial.println("ISR Serial RX");
+    serialRxInteruptState = 0;
+  }
+  readSerialInput();
+
+  if (interuptState == 1) // ISR called
+  {
+    Serial.println("ISR RTC Alarm");
+    Serial.println(dtm);
+    interuptState = 0;
+
+    sensorRead();
+    serialiseJSON();
+
+    pinMode(RTC_INTERRUPT_PIN, INPUT_PULLUP);
+    digitalWrite(RTC_INTERRUPT_PIN, HIGH);
+    attachInterrupt(0, wakeUpRTCAlarm, LOW);
+    setAlarm();
+
+  }
+
 }
