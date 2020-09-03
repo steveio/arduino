@@ -177,23 +177,124 @@ int moonPhaseId[29]=
 
 int currDay = dt.day();
 
-// Air Pressure Avg - 10 * 1 minute / 18 * 10 minute / 6 * 3 hour
-float avgP[10];
+// Hi / Low - Indexed by day of week (0 = Sun - 6 = Sat)
+float hiT[6]; // T = Temp
+float loT[6];
+float hiH[6]; // H = Humidity
+float loH[6];
+float hiP[6]; // P = Air Pressure
+float loP[6];
+
+
+// Air Pressure Avg - 10 * 1 min / 18 * 10 min / 6 * 3 hour Indices
+float avgP1Min[10];
 float avgP10Min[18];
 float avgP3Hour[8];
 
-int avgPCount = 0;
+int avgP1MinCount = 0;
 int avgP10MinCount = 0;
 int avgP3HourCount = 0;
 
-// Temperature / Humidity / Air Pressure 7 Day (0 = Sun - 6 = Sat) Hi/Low
-float hiT[6];
-float loT[6];
-float hiH[6];
-float loH[6];
-float hiP[6];
-float loP[6];
+// array statistics
+struct arrStat
+{
+    float min;
+    float max;
+    float mean;
+    int incCount;
+    int decCount;
+    int incSeqCount;
+    int decSeqCount;
+    float diff;
+    float incMaxDiff;
+    float decMaxDiff;
+};
 
+struct arrStat result;
+
+/**
+ * For n datapoints in array of float values
+ * determine:
+ *  min, max, mean
+ *  overall margin change  +/- (first to last)
+ *  count of sequential (monotonic) increasing / decreasing elements
+ *  culmulative count of periods with increase / decrease
+ *  max diff (increase/decrease change) between two data points
+ *
+ * @param float array
+ * @param int sz number of elements
+*  @param struct arraStat (pointer)
+ * @return void
+ *
+ */
+void computeArrStats(float arr[], int sz, struct arrStat *result)
+{
+
+  // init result struct values
+  result->min = 0;
+  result->max = 0;
+  result->mean = 0;
+  result->incSeqCount = 0;
+  result->decSeqCount = 0;
+  result->incCount = 0;
+  result->decCount = 0;
+  result->incMaxDiff = 0;
+  result->decMaxDiff = 0;
+
+  result->min = computeMin(arr, sz);
+  result->max = computeMax(arr  , sz);
+  result->mean = computeAvg(arr, sz);
+  result->diff = arr[sz-1] - arr[0]; // difference between last / first data points
+
+  int period = 1;
+
+  // sequential (monotonic) & cumulative increase / decrease counters
+  int incSeqCount = 0;
+  int decSeqCount = 0;
+  int incCumCount = 0;
+  int decCumCount = 0;
+
+  for(int i = sz; i > 1; i--)
+  {
+    float curr = arr[sz - i + period];
+    float prev = arr[sz - i];
+
+    if ( curr > prev) // increase (rise)
+    {
+      incCumCount++;
+      incSeqCount++;
+      if (incSeqCount > result->incSeqCount)
+      {
+        result->incSeqCount = incSeqCount;
+      }
+      decSeqCount = 0;
+
+      float diff = curr - prev;
+      if (diff > result->incMaxDiff)
+      {
+        result->incMaxDiff = diff;
+      }
+
+    } else if (curr < prev) { // decrease (fall)
+      decCumCount++;
+      decSeqCount++;
+      if (decSeqCount > result->decSeqCount)
+      {
+        result->decSeqCount = decSeqCount;
+      }
+      incSeqCount = 0;
+
+      float diff = prev - curr;
+      if (diff > result->decMaxDiff)
+      {
+        result->decMaxDiff = diff;
+      }
+    }
+  }
+
+  result->incCount = incCumCount;
+  result->decCount = decCumCount;
+}
 
 // compute simple average from array of values
 float computeAvg(float v[], uint8_t sz)
@@ -366,37 +467,169 @@ void getDHT11()
 
 }
 
-// Maintain Metrics: daily hi/low/average
-void updateDailyStats()
+void printStats()
 {
-  if (tc > hiT[dt.dayOfTheWeek()])
+
+  int i;
+
+  Serial.println("Daily Hi / Lo");
+
+  for (i = 0; i < 7; i++) 
+  {
+    Serial.print("Day: ");
+    Serial.println(i);
+
+    if (NULL != hiT[i])
+    {
+      Serial.print("Temp: ");
+      Serial.print(hiT[i]);
+      Serial.print(" / ");
+      Serial.println(loT[i]);
+    }
+
+    if (NULL != hiH[i])
+    {
+      Serial.print("Humidity: ");
+      Serial.print(hiH[i]);
+      Serial.print(" / ");
+      Serial.println(loH[i]);
+    }
+
+    if (NULL != hiP[i])
+    {
+      Serial.print("Air Pressure: ");
+      Serial.print(hiP[i]);
+      Serial.print(" / ");
+      Serial.println(loP[i]);
+    }
+
+  }
+
+  Serial.println("Air Pressure Average:");
+
+  Serial.println("1 minute average:");
+  for (i = 0; i < 10; i++)
+  {
+    if (NULL != avgP1Min[i])
+    {
+      Serial.print(avgP1Min[i]);
+      Serial.print("\t");
+    }
+  }
+  Serial.println("");
+
+  Serial.println("10 minute average:");
+  for (i = 0; i < 18; i++)
+  {
+    if (NULL != avgP10Min[i])
+    {
+      Serial.print(avgP10Min[i]);
+      Serial.print("\t");
+    }
+  }
+  Serial.println("");
+
+
+  Serial.println("3 hour average:");
+  for (i = 0; i < 8; i++)
+  {
+    if (NULL != avgP3Hour[i])
+    {
+      Serial.print(avgP3Hour[i]);
+      Serial.print("\t");
+    }
+  }
+  Serial.println("");
+
+  Serial.println("Air Pressure - 3 hour statistics (10 min period):");
+
+  Serial.print("Min: "); Serial.println(result.min);
+  Serial.print("Max: "); Serial.println(result.max);
+  Serial.print("Mean: "); Serial.println(result.mean);
+  Serial.print("Diff: "); Serial.println(result.diff);
+
+  Serial.print("Inc Count: "); Serial.println(result.incCount);
+  Serial.print("Dec Count: "); Serial.println(result.decCount);
+
+  Serial.print("Inc Seq Count: "); Serial.println(result.incSeqCount);
+  Serial.print("Dec Seq Count: "); Serial.println(result.decSeqCount);
+
+  Serial.print("Inc Max Diff: "); Serial.println(result.incMaxDiff);
+  Serial.print("Dec Max Diff: "); Serial.println(result.decMaxDiff);
+
+  Serial.println("");
+}
+
+// Maintain Metrics: daily hi/low/average
+void updateStats()
+{
+
+  if (NULL == hiT[dt.dayOfTheWeek()] || tc > hiT[dt.dayOfTheWeek()])
   {
     hiT[dt.dayOfTheWeek()] = tc;
   }
-  if (tc < loT[dt.dayOfTheWeek()])
+  if (NULL == loT[dt.dayOfTheWeek()] || tc < loT[dt.dayOfTheWeek()])
   {
     loT[dt.dayOfTheWeek()] = tc;
   }
 
-  if (h > hiH[dt.dayOfTheWeek()])
+  if (NULL == hiH[dt.dayOfTheWeek()] || h > hiH[dt.dayOfTheWeek()])
   {
     hiH[dt.dayOfTheWeek()] = h;
   }
-  if (h < loH[dt.dayOfTheWeek()])
+  if (NULL == loH[dt.dayOfTheWeek()] || h < loH[dt.dayOfTheWeek()])
   {
     loH[dt.dayOfTheWeek()] = h;
   }
 
-  if (bmpPressure > hiP[dt.dayOfTheWeek()])
+  if (NULL == hiP[dt.dayOfTheWeek()] || bmpPressure > hiP[dt.dayOfTheWeek()])
   {
     hiP[dt.dayOfTheWeek()] = bmpPressure;
   }
-  if (bmpPressure < loP[dt.dayOfTheWeek()])
+  if (NULL == loP[dt.dayOfTheWeek()] || bmpPressure < loP[dt.dayOfTheWeek()])
   {
     loP[dt.dayOfTheWeek()] = bmpPressure;
   }
 
+  updateAirPressureAvg();
+
+  printStats();
+
 }
+
+/** 
+ * Air Pressure - Simple Moving Average 
+ * 
+ * Maintain 1min, 10min & 3 Hour Average Indices
+ * 
+ */
+void updateAirPressureAvg()
+{
+  avgP1Min[avgP1MinCount++] = bmpPressure;
+
+  if (avgP1MinCount == 10) // roll-up 1 min avg
+  {
+    // append avg of 1min array to 10 min array
+    float a = computeAvg(avgP1Min, avgP1MinCount);
+    avgP10Min[avgP10MinCount++] = a;
+    avgP1MinCount = 0;
+    
+    if(avgP10MinCount == 18) // roll-up 10 min avg (18 * 10 mins = 3hour)
+    {
+      float a2 = computeAvg(avgP10Min, avgP10MinCount);
+      avgP3Hour[avgP3HourCount++] = a2;
+      avgP10MinCount = 0;
+
+      if (avgP3Hour == 8) // reset 3 hour avg counter
+      {
+        avgP3HourCount = 0;
+      }
+    }
+  }
+
+  computeArrStats(avgP10MinCount, 18, &result);
+}
+
 
 void getBMP180()
 {
@@ -509,6 +742,30 @@ void LCDWrite()
     delay(d);
     lcd.clear();
 
+    if (avgP3HourCount >= 1)
+    {
+
+      lcd.setCursor(0, 0);
+      lcd.print("Air Pressure - 3h Avg");
+      lcd.setCursor(0, 1);
+      float a = computeAvg(avgP3Hour, avgP3HourCount);
+      lcd.print(a / 100);
+      lcd.print(" Pa");
+
+    } else if (avgP10MinCount >= 1) {
+
+      lcd.setCursor(0, 0);
+      lcd.print("Air Pressure - 10m Avg");
+      lcd.setCursor(0, 1);
+      float a = computeAvg(avgP10Min, avgP10MinCount);
+      lcd.print(a / 100);
+      lcd.print(" Pa");
+
+    }
+
+    delay(d);
+    lcd.clear();
+
     lcd.setCursor(0, 0);
     lcd.print("Light   Water");
     lcd.setCursor(0, 1);
@@ -558,6 +815,43 @@ void LCDWrite()
 
     delay(d);
     lcd.clear();
+
+    lcd.setCursor(0, 0);
+    lcd.print("Temp Hi/Lo: ");
+
+    lcd.setCursor(0, 1);
+    lcd.print(hiT[dt.dayOfTheWeek()]);
+    lcd.print(" / ");
+    lcd.print(loT[dt.dayOfTheWeek()]);
+    lcd.print(" ");
+    lcd.print((char)223); lcd.print("C  ");
+
+    delay(d);
+    lcd.clear();
+
+    lcd.setCursor(0, 0);
+    lcd.print("Humidity Hi/Lo: ");
+
+    lcd.setCursor(0, 1);
+    lcd.print(hiH[dt.dayOfTheWeek()]);
+    lcd.print(" / ");
+    lcd.print(loH[dt.dayOfTheWeek()]);
+    lcd.print(" ");
+    lcd.print("%");
+
+    delay(d);
+    lcd.clear();
+
+    lcd.setCursor(0, 0);
+    lcd.print("Air Pressure Hi/Lo: ");
+
+    lcd.setCursor(0, 1);
+    lcd.print(hiP[dt.dayOfTheWeek()]);
+    lcd.print(" / ");
+    lcd.print(loP[dt.dayOfTheWeek()]);
+    lcd.print(" ");
+    lcd.print("Pa");
+
 }
 
 /**
@@ -1036,6 +1330,7 @@ void setup() {
   dt = rtc.get();
   ts = dt.unixtime(); // unix ts for logging
   sensorRead();
+  updateStats();
   serialiseJSON();
 
   pinMode(RTC_INTERRUPT_PIN, INPUT_PULLUP);
@@ -1068,6 +1363,7 @@ void loop() {
     interuptState = 0;
 
     sensorRead();
+    updateStats();
     serialiseJSON();
 
     pinMode(RTC_INTERRUPT_PIN, INPUT_PULLUP);
