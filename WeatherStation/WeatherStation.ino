@@ -172,8 +172,7 @@ int moonPhaseId[29]=
 };
 
 
-
-// @todo - Daily Hi/Low & simple moving averages
+// Daily Hi/Low & Air Pressure Simple moving average
 
 int currDay = dt.day();
 
@@ -187,15 +186,27 @@ float loP[6];
 
 
 // Air Pressure Avg - 10 * 1 min / 18 * 10 min / 6 * 3 hour Indices
-float avgP1Min[10];
-float avgP10Min[18];
-float avgP3Hour[8];
+float avgP1Min[10] = { 0 };
+float avgP10Min[18] = { 0 };
+float avgP3Hour[8] = { 0 };
 
 int avgP1MinCount = 0;
 int avgP10MinCount = 0;
 int avgP3HourCount = 0;
 
-// array statistics
+int airPressureTrendId = 0;
+
+char ap0[] = "";
+char ap1[] = "Steady";
+char ap2[] = "Falling";
+char ap3[] = "Rising";
+char ap4[] = "Falling Rapidly";
+char ap5[] = "Rising Rapidly";
+
+char * airPressureTrend[] = {ap0, ap1, ap2, ap3, ap4, ap5};
+
+
+// struct providing math stats for float sequence
 struct arrStat
 {
     float min;
@@ -206,20 +217,22 @@ struct arrStat
     int incSeqCount;
     int decSeqCount;
     float diff;
+    float trend;
     float incMaxDiff;
     float decMaxDiff;
 };
 
 struct arrStat result;
 
+
 /**
- * For n datapoints in array of float values
- * determine:
- *  min, max, mean
- *  overall margin change  +/- (first to last)
- *  count of sequential (monotonic) increasing / decreasing elements
- *  culmulative count of periods with increase / decrease
- *  max diff (increase/decrease change) between two data points
+ * Simple c array math routine to compute:
+ *  - min / max / mean
+ *  - range (diff 1st to last element)
+ *  - trend (count of ascending / descending values in sequence)
+ *  - greatest diff between two elements (increase / decrease)
+ *  - count of consecutive (monotonic) sequence (increase / decrease)
+ *  - culmulative count of incremental / decrementing sequences
  *
  * @param float array
  * @param int sz number of elements
@@ -238,6 +251,7 @@ void computeArrStats(float arr[], int sz, struct arrStat *result)
   result->decSeqCount = 0;
   result->incCount = 0;
   result->decCount = 0;
+  result->trend = 0;
   result->incMaxDiff = 0;
   result->decMaxDiff = 0;
 
@@ -259,6 +273,14 @@ void computeArrStats(float arr[], int sz, struct arrStat *result)
     float curr = arr[sz - i + period];
     float prev = arr[sz - i];
 
+    float diff = curr - prev;
+    if (diff > 0)
+    {
+      result->trend++;
+    } else {
+      result->trend--;
+    }
+
     if ( curr > prev) // increase (rise)
     {
       incCumCount++;
@@ -269,7 +291,7 @@ void computeArrStats(float arr[], int sz, struct arrStat *result)
       }
       decSeqCount = 0;
 
-      float diff = curr - prev;
+      diff = curr - prev;
       if (diff > result->incMaxDiff)
       {
         result->incMaxDiff = diff;
@@ -284,7 +306,7 @@ void computeArrStats(float arr[], int sz, struct arrStat *result)
       }
       incSeqCount = 0;
 
-      float diff = prev - curr;
+      diff = prev - curr;
       if (diff > result->decMaxDiff)
       {
         result->decMaxDiff = diff;
@@ -295,6 +317,7 @@ void computeArrStats(float arr[], int sz, struct arrStat *result)
   result->incCount = incCumCount;
   result->decCount = decCumCount;
 }
+
 
 // compute simple average from array of values
 float computeAvg(float v[], uint8_t sz)
@@ -325,7 +348,7 @@ float computeMin(float v[], uint8_t sz)
   float m = 0;
   for(int i = 0; i<sz; i++)
   {
-    m = (v[i] < m) ? v[i] : m;
+    m = ((i == 0) || (v[i] < m)) ? v[i] : m;
   }
   return m;
 }
@@ -455,15 +478,12 @@ void getDHT11()
     Serial.println("DHT11 Sensor ERROR");
   }
 
-  Serial.println("Humidity:");
+  Serial.print("Humidity:");
   Serial.println(h);
-  Serial.println("Temperature (celsuis):");
+  Serial.print("Temperature (celsuis):");
   Serial.println(tc);
-  Serial.println("Temperature (fahrenheit):");
+  Serial.print("Temperature (fahrenheit):");
   Serial.println(tf);
-
-
-  Serial.println(dt.dayOfTheWeek());
 
 }
 
@@ -541,12 +561,13 @@ void printStats()
   }
   Serial.println("");
 
-  Serial.println("Air Pressure - 3 hour statistics (10 min period):");
+  Serial.println("Air Pressure - 3 hour statistics:");
 
   Serial.print("Min: "); Serial.println(result.min);
   Serial.print("Max: "); Serial.println(result.max);
   Serial.print("Mean: "); Serial.println(result.mean);
   Serial.print("Diff: "); Serial.println(result.diff);
+  Serial.print("Trend: "); Serial.println(result.trend);
 
   Serial.print("Inc Count: "); Serial.println(result.incCount);
   Serial.print("Dec Count: "); Serial.println(result.decCount);
@@ -558,6 +579,7 @@ void printStats()
   Serial.print("Dec Max Diff: "); Serial.println(result.decMaxDiff);
 
   Serial.println("");
+
 }
 
 // Maintain Metrics: daily hi/low/average
@@ -625,9 +647,39 @@ void updateAirPressureAvg()
         avgP3HourCount = 0;
       }
     }
-  }
 
-  computeArrStats(avgP10MinCount, 18, &result);
+    if (avgP10MinCount >= 1)
+    {
+      computeArrStats(avgP10Min, avgP10MinCount, &result);
+      getAirPressureTrend();
+    }
+
+  }
+}
+
+// determine air pressure 3h tendancy / trend
+void getAirPressureTrend()
+{
+    // overall or intra data point fall > margin OR 2/3rds of sequence monotonic increase / decrease
+
+    if (result.diff > -609.55 || result.decMaxDiff > -609.55 || result.decSeqCount > (avgP10MinCount - (avgP10MinCount / 3)))
+    {
+      airPressureTrendId = 4; // falling rapidly
+    } else if (result.diff > 609.55 || result.incMaxDiff > -609.55 || result.incSeqCount > (avgP10MinCount - (avgP10MinCount / 3)))
+    {
+      airPressureTrendId = 5; // rising rapidly
+    } else if (result.trend < (0 - (avgP10MinCount / 3))) // 2/3rds of sequence falling
+    {
+      airPressureTrendId = 2; // falling
+    } else if (result.trend > (avgP10MinCount - (avgP10MinCount / 3))) // 2/3rds of sequence rising
+    {
+      airPressureTrendId = 3; // rising 
+    } else {
+      airPressureTrendId = 1; // steady
+    }
+
+    Serial.println("Air Pressure Tendancy: ");
+    Serial.println(airPressureTrend[airPressureTrendId]);
 }
 
 
@@ -648,12 +700,15 @@ void getBMP180()
 
     if (bmpPressure > hiThreshold)
     {
-      Serial.println(" (High)");
+      Serial.print(" (High) ");
     } else if (bmpPressure < lowThreshold)  {
-      Serial.println(" (Low)");
+      Serial.print(" (Low) ");
     } else {
-      Serial.println("");
+      Serial.print(" ");
     }
+
+    Serial.println(airPressureTrend[airPressureTrendId]);
+
 
     // Calculate altitude assuming 'standard' barometric
     // pressure of 1013.25 millibar = 101325 Pascal
