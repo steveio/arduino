@@ -177,12 +177,12 @@ int moonPhaseId[29]=
 int currDay = dt.day();
 
 // Hi / Low - Indexed by day of week (0 = Sun - 6 = Sat)
-float hiT[6]; // T = Temp
-float loT[6];
-float hiH[6]; // H = Humidity
-float loH[6];
-float hiP[6]; // P = Air Pressure
-float loP[6];
+float hiT[7] = { 0 }; // T = Temp
+float loT[7] = { 0 };
+float hiH[7] = { 0 }; // H = Humidity
+float loH[7] = { 0 };
+float hiP[7] = { 0 }; // P = Air Pressure
+float loP[7] = { 0 };
 
 
 // Air Pressure Avg - 10 * 1 min / 18 * 10 min / 6 * 3 hour Indices
@@ -193,6 +193,8 @@ float avgP3Hour[8] = { 0 };
 int avgP1MinCount = 0;
 int avgP10MinCount = 0;
 int avgP3HourCount = 0;
+
+bool has3hAvg = 0;
 
 int airPressureTrendId = 0;
 
@@ -450,14 +452,14 @@ void sensorRead()
 void getWaterSensor()
 {
   wSensorVal = analogRead(wSensorPin);
-  Serial.println("Water Sensor: ");
+  Serial.print("Water Sensor: ");
   Serial.println(wSensorVal, DEC);
 }
 
 void getLDR()
 {
   ldr_apin_val = analogRead(ldr_apin);
-  Serial.println("Light Dependant Resistor (LDR): ");
+  Serial.print("Light Dependant Resistor (LDR): ");
   Serial.println(ldr_apin_val, DEC);
 }
 
@@ -494,7 +496,7 @@ void printStats()
 
   Serial.println("Daily Hi / Lo");
 
-  for (i = 0; i < 7; i++) 
+  for (i = 0; i <= 6; i++) 
   {
     Serial.print("Day: ");
     Serial.println(i);
@@ -524,6 +526,8 @@ void printStats()
     }
 
   }
+
+  Serial.println("");
 
   Serial.println("Air Pressure Average:");
 
@@ -561,7 +565,11 @@ void printStats()
   }
   Serial.println("");
 
-  Serial.println("Air Pressure - 3 hour statistics:");
+  Serial.println("Air Pressure - 3h statistics:");
+
+  Serial.print("Trend: ");
+  Serial.println(airPressureTrend[airPressureTrendId]);
+
 
   Serial.print("Min: "); Serial.println(result.min);
   Serial.print("Max: "); Serial.println(result.max);
@@ -627,6 +635,15 @@ void updateStats()
  */
 void updateAirPressureAvg()
 {
+
+  if (avgP10MinCount >= 1)
+  {
+    // if at least one 3h avg has rolled up, consider all 18 10 minute values
+    int count = (has3hAvg == 1) ? 18 : avgP10MinCount;
+    computeArrStats(avgP10Min, count, &result);
+    getAirPressureTrend();
+  }
+  
   avgP1Min[avgP1MinCount++] = bmpPressure;
 
   if (avgP1MinCount == 10) // roll-up 1 min avg
@@ -640,6 +657,7 @@ void updateAirPressureAvg()
     {
       float a2 = computeAvg(avgP10Min, avgP10MinCount);
       avgP3Hour[avgP3HourCount++] = a2;
+      has3hAvg = 1;
       avgP10MinCount = 0;
 
       if (avgP3Hour == 8) // reset 3 hour avg counter
@@ -648,38 +666,32 @@ void updateAirPressureAvg()
       }
     }
 
-    if (avgP10MinCount >= 1)
-    {
-      computeArrStats(avgP10Min, avgP10MinCount, &result);
-      getAirPressureTrend();
-    }
-
   }
 }
 
-// determine air pressure 3h tendancy / trend
+
+
+/** 
+ *  Air pressure 3h tendancy / trend
+ *  
+ */
 void getAirPressureTrend()
 {
-    // overall or intra data point fall > margin OR 2/3rds of sequence monotonic increase / decrease
-
-    if (result.diff > -609.55 || result.decMaxDiff > -609.55 || result.decSeqCount > (avgP10MinCount - (avgP10MinCount / 3)))
+    if (result.diff < -609.55 || result.decMaxDiff > 609.55 || (avgP10MinCount >= 6 && result.trend < (0 - (avgP10MinCount / 3))))
     {
       airPressureTrendId = 4; // falling rapidly
-    } else if (result.diff > 609.55 || result.incMaxDiff > -609.55 || result.incSeqCount > (avgP10MinCount - (avgP10MinCount / 3)))
+    } else if (result.diff > 609.55 || result.incMaxDiff > 609.55 || (avgP10MinCount >= 6 && result.trend > (avgP10MinCount - (avgP10MinCount / 3))))
     {
       airPressureTrendId = 5; // rising rapidly
-    } else if (result.trend < (0 - (avgP10MinCount / 3))) // 2/3rds of sequence falling
+    } else if (result.diff < -10.15 && result.trend < -2)
     {
       airPressureTrendId = 2; // falling
-    } else if (result.trend > (avgP10MinCount - (avgP10MinCount / 3))) // 2/3rds of sequence rising
+    } else if (result.diff > 10.15 && result.trend > 2)
     {
       airPressureTrendId = 3; // rising 
     } else {
       airPressureTrendId = 1; // steady
     }
-
-    Serial.println("Air Pressure Tendancy: ");
-    Serial.println(airPressureTrend[airPressureTrendId]);
 }
 
 
@@ -750,7 +762,7 @@ void LCDWrite()
   data["mn"] = mDay;
   */
 
-    long d = 5000;
+    long d = 3000;
 
     lcd.clear();
     lcd.setCursor(0, 0);
@@ -764,7 +776,7 @@ void LCDWrite()
     lcd.print(buff);
 
 
-    delay(3000);
+    delay(2000);
 
     lcd.clear();
     lcd.setCursor(0, 0);
@@ -797,30 +809,19 @@ void LCDWrite()
     delay(d);
     lcd.clear();
 
-    if (avgP3HourCount >= 1)
-    {
+    lcd.setCursor(0, 0);
+    lcd.print("3h: ");
+    lcd.print(result.mean / 100);
+    lcd.print(" Pa");
 
-      lcd.setCursor(0, 0);
-      lcd.print("Air Pressure - 3h Avg");
-      lcd.setCursor(0, 1);
-      float a = computeAvg(avgP3Hour, avgP3HourCount);
-      lcd.print(a / 100);
-      lcd.print(" Pa");
+    lcd.setCursor(0, 1);
 
-    } else if (avgP10MinCount >= 1) {
-
-      lcd.setCursor(0, 0);
-      lcd.print("Air Pressure - 10m Avg");
-      lcd.setCursor(0, 1);
-      float a = computeAvg(avgP10Min, avgP10MinCount);
-      lcd.print(a / 100);
-      lcd.print(" Pa");
-
-    }
+    Serial.println(airPressureTrend[airPressureTrendId]);
 
     delay(d);
     lcd.clear();
 
+    /*
     lcd.setCursor(0, 0);
     lcd.print("Light   Water");
     lcd.setCursor(0, 1);
@@ -835,7 +836,7 @@ void LCDWrite()
 
     delay(d);
     lcd.clear();
-
+    */
     lcd.setCursor(0, 0);
     lcd.print("Sun Position");
 
@@ -846,7 +847,7 @@ void LCDWrite()
     lcd.print(solarPositionData.elevation,2);
     lcd.print((char)223);
 
-    delay(d+2000);
+    delay(d);
     lcd.clear();
 
     lcd.setCursor(0, 0);
@@ -896,16 +897,6 @@ void LCDWrite()
 
     delay(d);
     lcd.clear();
-
-    lcd.setCursor(0, 0);
-    lcd.print("Air Pressure Hi/Lo: ");
-
-    lcd.setCursor(0, 1);
-    lcd.print(hiP[dt.dayOfTheWeek()]);
-    lcd.print(" / ");
-    lcd.print(loP[dt.dayOfTheWeek()]);
-    lcd.print(" ");
-    lcd.print("Pa");
 
 }
 
