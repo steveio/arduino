@@ -811,12 +811,12 @@ void LCDWrite()
 
     lcd.setCursor(0, 0);
     lcd.print("3h: ");
-    lcd.print(result.mean / 100);
-    lcd.print(" Pa");
+    lcd.println(airPressureTrend[airPressureTrendId]);
 
     lcd.setCursor(0, 1);
 
-    Serial.println(airPressureTrend[airPressureTrendId]);
+    lcd.print(result.mean / 100);
+    lcd.print(" Pa");
 
     delay(d);
     lcd.clear();
