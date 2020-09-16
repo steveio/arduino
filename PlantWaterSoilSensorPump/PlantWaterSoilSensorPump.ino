@@ -1,23 +1,29 @@
 /**
  * Automated Plant Watering
  * 
- * Arduino capacitive soil moisture sensor v1.2
- * 5v water pump attached via a relay
+ * Arduino Pro Mini 3.3v 
+ * Capacitive soil moisture sensor v1.2
+ * 5v water pump attached via a relay (wired normally closed)
  * OLED SSD1306 124*64 display
+ * 5v power (from solar / 12v adapter) via L7805 regulator
  * 
  * When soil moisture level is found high (dry) pump is activated for n secs
  * Delays are implemented for sensor calibration and pump activations
  *
+ * @todo - 
+ *  logic to detect faulty sensor values, deactivate pump
+ *  out of water / overflow sensor
+ *  
+ *
  */
 
-
 // sensor calibration
-const int AirValue = 970;
-const int WaterValue = 550;
+const int AirValue = 1024;
+const int WaterValue = 570;
 
 const int soilSensorPin = A0;
 unsigned long startTime = 0;
-const int calibrationDelay = 300000; // time for sensor to calibrate (level)
+const unsigned long calibrationDelay = 60000; // time for sensor to calibrate (level)
 int intervals = (AirValue - WaterValue)/3;
 int soilMoistureValue = 0;
 
@@ -32,9 +38,10 @@ char * label[] = {l0, l1, l2, l3};
 
 const int relayPin = 7;
 bool pumpStatus = 0;
-const int pumpActiveTime = 5000;
-const int pumpDelay = 180000;
-unsigned long pumpLastActivation = 0;
+const unsigned long pumpActiveTime = 5000; // pump active duration
+const unsigned long pumpDelay = 180000; // min time in ms between pump activations
+unsigned long pumpLastActivation = 0; // ts of most recent pump activation
+unsigned long pumpActivations = 0;
 
 // SSD1306 Ascii 
 #include <Wire.h>
@@ -52,24 +59,24 @@ SSD1306AsciiWire oled;
 
 bool isCalibrating()
 {
-  return (millis() > startTime + calibrationDelay) ? 0 : 1;
+  return (millis() > startTime + calibrationDelay) ? false : true;
 }
 
 void activatePump()
 {
-  if(isCalibrating() && (pumpLastActivation > millis() + pumpDelay))
+  if(!isCalibrating() && (pumpLastActivation == 0 || millis() > pumpLastActivation + pumpDelay))
   {
     Serial.print(millis());
     Serial.print("\t");
     Serial.println("Pump On:");
+
     pumpStatus = 1;
     displayStatus();
 
-    digitalWrite(relayPin, HIGH);
-    delay(pumpActiveTime);
     digitalWrite(relayPin, LOW);
+    delay(pumpActiveTime);
+    digitalWrite(relayPin, HIGH);
 
-    
     Serial.print(millis());
     Serial.print("\t");
     Serial.println("Pump Off:");
@@ -77,6 +84,7 @@ void activatePump()
     pumpStatus = 0;
     displayStatus();
 
+    pumpActivations++;
     pumpLastActivation = millis();
   }
 }
@@ -96,23 +104,23 @@ void readSoilMoisture()
   Serial.print(soilMoistureValue);
   Serial.print("\t");
 
-  if(soilMoistureValue > WaterValue && (soilMoistureValue < (WaterValue + intervals)))
+  if(soilMoistureValue > WaterValue && (soilMoistureValue < (WaterValue + intervals))) // V Wet
   {
     soilMoistureStatusId = 0;
-    Serial.println("Very Wet");
+    Serial.println(label[soilMoistureStatusId]);
   }
-  else if(soilMoistureValue > (WaterValue + intervals) && (soilMoistureValue < (AirValue - intervals)))
+  else if(soilMoistureValue > (WaterValue + intervals) && (soilMoistureValue < (AirValue - intervals))) // Wet
   {
     soilMoistureStatusId = 1;
-    Serial.println("Wet");
+    Serial.println(label[soilMoistureStatusId]);
   }
-  else if(soilMoistureValue < AirValue && (soilMoistureValue > (AirValue - intervals)))
+  else if(soilMoistureValue < AirValue && (soilMoistureValue > (AirValue - intervals))) // Dry
   {
     soilMoistureStatusId = 2;
-    Serial.println("Dry");
+    Serial.println(label[soilMoistureStatusId]);
+    Serial.println("Activate pump: ");
     activatePump();
   }
-  Serial.println("");
 
   displayStatus();
 }
@@ -125,22 +133,32 @@ void displayStatus()
   oled.clear();
   oled.println("Soil Moisture: ");
   oled.set2X();
-  oled.print(soilMoistureValue);
-  oled.print(" ");
-  oled.println(label[soilMoistureStatusId]);
+  if (isCalibrating())
+  {
+    oled.println("Calibrating..");
+  } else {
+    oled.print(soilMoistureValue);
+    oled.print(" ");
+    oled.println(label[soilMoistureStatusId]);
+  }
   oled.set1X();
   oled.println();
-  oled.print("Pump Status:");
-  oled.println(pumpStatus);
-  oled.print("Last Active:");
+  oled.print("Pump:");
+  oled.print(pumpStatus);
+  oled.print(" / ");
+  oled.println(pumpActivations);
+
+  oled.print("Pump Last:");
   if (pumpLastActivation > 0)
   {
-    oled.println(millis() - pumpLastActivation);
+    oled.println((millis() - pumpLastActivation) / 1000);
   } else {
     oled.println(0);
   }
-  oled.print("Calibrating:");
-  oled.println(isCalibrating());
+  oled.print("Dur/Delay:");
+  oled.print(pumpActiveTime / 1000);
+  oled.print(" / ");
+  oled.println(pumpDelay / 1000);
 
 }
 
@@ -148,12 +166,25 @@ void setup() {
   Serial.begin(115200);
   Serial.println("Soil Moisture Sensor Test");
 
+  delay(2000);
+
   startTime = millis();
+  Serial.print("Start ts: ");
+  Serial.println(startTime);
+
+  Serial.print("Calibration Delay: ");
+  Serial.println(calibrationDelay);
+
+  Serial.print("Pump Duration: ");
+  Serial.println(pumpActiveTime);
+
+  Serial.print("Pump Delay: ");
+  Serial.println(pumpDelay);
 
   pinMode(soilSensorPin, INPUT);
 
   pinMode(relayPin, OUTPUT);
-  digitalWrite(relayPin, LOW);
+  digitalWrite(relayPin, HIGH); // switch pump off
 
   Wire.begin();
   Wire.setClock(400000L);
