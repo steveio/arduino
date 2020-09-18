@@ -13,7 +13,7 @@
  * @todo - 
  *  logic to detect faulty sensor values, deactivate pump
  *  out of water / overflow sensor
- *  
+ *  sleep / wake / low power mode
  *
  */
 
@@ -23,7 +23,7 @@ const int WaterValue = 570;
 
 const int soilSensorPin = A0;
 unsigned long startTime = 0;
-const unsigned long calibrationDelay = 60000; // time for sensor to calibrate (level)
+const unsigned long calibrationDelay = 30000; // time for sensor to calibrate (level)
 int intervals = (AirValue - WaterValue)/3;
 int soilMoistureValue = 0;
 
@@ -38,8 +38,8 @@ char * label[] = {l0, l1, l2, l3};
 
 const int relayPin = 7;
 bool pumpStatus = 0;
-const unsigned long pumpActiveTime = 5000; // pump active duration
-const unsigned long pumpDelay = 180000; // min time in ms between pump activations
+const unsigned long pumpActiveTime = 30000; // pump active duration
+const unsigned long pumpDelay = 300000; // min time in ms between pump activations
 unsigned long pumpLastActivation = 0; // ts of most recent pump activation
 unsigned long pumpActivations = 0;
 
