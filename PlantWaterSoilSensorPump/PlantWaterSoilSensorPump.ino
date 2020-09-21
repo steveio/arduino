@@ -15,33 +15,35 @@
  *  logic to detect faulty sensor values, deactivate pump
  *  out of water / overflow sensor
  *  sleep / wake / low power mode
+ *  memory optimise
  *
  */
 
+
 // sensor calibration
-const int AirValue = 1024;
-const int WaterValue = 570;
+int airVal = 1024;
+int waterVal = 570;
 
 const int soilSensorPin = A0;
 unsigned long startTime = 0;
-const unsigned long calibrationDelay = 30000; // time for sensor to calibrate (level)
-int intervalDivider = 2; // 1-5   
-int intervals = (AirValue - WaterValue)/intervalDivider;
+unsigned long calibrationDelay = 30000; // time for sensor to calibrate (level)
+int interval = 2; // 1-5   
+int intervals = (airVal - waterVal)/interval;
 int soilMoistureValue = 0;
 
 int soilMoistureStatusId;
 
-char l0[] = "V Wet";
-char l1[] = "Wet";
-char l2[] = "Dry";
-char l3[] = "V Dry";
+const char l0[] = "V Wet";
+const char l1[] = "Wet";
+const char l2[] = "Dry";
+const char l3[] = "V Dry";
 
 char * label[] = {l0, l1, l2, l3};
 
 const int relayPin = 7;
-bool pumpStatus = 0;
-const unsigned long pumpActiveTime = 30000; // pump active duration
-const unsigned long pumpDelay = 300000; // min time in ms between pump activations
+bool pumpActive = 0;
+unsigned long pumpDuration = 30000; // pump active duration
+unsigned long pumpDelay = 300000; // min time in ms between pump activations
 unsigned long pumpLastActivation = 0; // ts of most recent pump activation
 unsigned long pumpActivations = 0;
 
@@ -63,6 +65,7 @@ unsigned long displayTimeout = 300000; // delay to turn display off
 unsigned long displayLastActivation = 0; // ts of last display activation
 
 #define DISPLAY_STATUS 0x01
+#define DISPLAY_CONFIG 0x10
 
 
 volatile bool irqStatus = 0;
@@ -78,6 +81,30 @@ volatile int activeButton = 0;
 
 unsigned long buttonDebounce = 150; // msecs
 unsigned long buttonLastActive = 0;
+
+// config opts: pump, sensor, system
+#define CFG_PUMP_DURATION 0x00
+#define CFG_PUMP_DELAY 0x01
+#define CFG_AIR_VAL 0x02
+#define CFG_WATER_VAL 0x03
+#define CFG_INTERVALS 0x04
+#define CFG_CALIBRATION_TIME 0x05
+
+const char l10[] = "Pump Duration";
+const char l11[] = "Pump Delay";
+const char l12[] = "Air Val";
+const char l13[] = "Water Val";
+const char l14[] = "Wet/Dry Interval";
+const char l15[] = "Calibration Time";
+
+const char *const cflabel[] = {l10, l11, l12, l13, l14, l15};
+
+int cfNumItems = 6;
+bool cfActive = 0;
+unsigned long cfLastActive = 0;
+unsigned long cfActiveDelay = 120000;
+int cfSelectedItem = 0;
+
 
 // push button IRQ
 void pin2IRQ()
@@ -115,17 +142,21 @@ void handleButtonEvent()
     switch (activeButton)
     {
       case BUTTON_01:
-        Serial.println("Button 1: ");
+        editConfig();
         break; 
-      case BUTTON_02:
-        Serial.println("Button 2: Pump on/off");
-        (pumpStatus == 0) ? pumpOn() : pumpOff();
+      case BUTTON_02: // exit edit config (if active) OR pump ON / OFF
+        if (cfActive == 1)
+        {
+          timeoutCf();
+        } else {
+          (pumpActive == 0) ? pumpOn() : pumpOff();          
+        }
         break;
       case BUTTON_03:
-        Serial.println("Button 3:");
+        incConfigOpt();
         break;
       case BUTTON_04:
-        Serial.println("Button 4:");
+        decConfigOpt();
         break;
       default:
         break;
@@ -137,6 +168,113 @@ void handleButtonEvent()
   irqStatus = 0;
 }
 
+void incConfigOpt()
+{
+  if (cfActive == 1)
+  {
+    switch (cfSelectedItem)
+    {
+      case CFG_PUMP_DURATION:
+        pumpDuration++;
+        break;
+      case CFG_PUMP_DELAY:
+        pumpDelay++;
+        break;
+      case CFG_AIR_VAL:
+        airVal++;
+        break;
+      case CFG_WATER_VAL:
+        waterVal++;
+        break;
+      case CFG_INTERVALS:
+        if (interval <= 5)
+        {
+          interval++;
+        }
+        break;
+      case CFG_CALIBRATION_TIME:
+        calibrationDelay++;
+        break;
+    }    
+  }
+  display(DISPLAY_CONFIG);
+  cfLastActive = millis();
+}
+
+void decConfigOpt()
+{
+  if (cfActive == 1)
+  {
+    switch (cfSelectedItem)
+    {
+      case CFG_PUMP_DURATION:
+        if (pumpDuration > 0)
+        {
+          pumpDuration--;
+        }
+        break;
+      case CFG_PUMP_DELAY:
+        if (pumpDelay > 0)
+        {
+          pumpDelay--;
+        }
+        break;
+      case CFG_AIR_VAL:
+        if (airVal > 0)
+        {
+          airVal--;
+        }
+        break;
+      case CFG_WATER_VAL:
+        if (waterVal > 0)
+        {
+          waterVal--;
+        }
+        break;
+      case CFG_INTERVALS:
+        if (interval > 0)
+        {
+          interval--;
+        }
+        break;
+      case CFG_CALIBRATION_TIME:
+        if (calibrationDelay > 0)
+        {
+          calibrationDelay--;
+        }
+        break;
+    }    
+  }
+  display(DISPLAY_CONFIG);
+  cfLastActive = millis();
+}
+
+void editConfig()
+{
+  if (cfActive == 0)
+  {
+    cfActive = 1;
+  } else {
+    if (cfSelectedItem < cfNumItems -1)
+    {
+      cfSelectedItem++;
+    } else {
+      cfSelectedItem = 0;
+    }
+  }
+  cfLastActive = millis();
+  display(DISPLAY_CONFIG);
+}
+
+void timeoutCf()
+{
+  Serial.println("Cf Timeout");
+  cfActive = 0;
+  cfSelectedItem = 0;
+  cfLastActive = 0;
+  display(DISPLAY_STATUS);
+}
+
 bool isCalibrating()
 {
   return (millis() > startTime + calibrationDelay) ? false : true;
@@ -144,7 +282,7 @@ bool isCalibrating()
 
 void pumpOn()
 {
-    pumpStatus = 1;
+    pumpActive = 1;
     digitalWrite(relayPin, LOW);  
 
     Serial.print(millis());
@@ -154,7 +292,7 @@ void pumpOn()
 
 void pumpOff()
 {
-    pumpStatus = 0;
+    pumpActive = 0;
     digitalWrite(relayPin, HIGH);
 
     Serial.print(millis());
@@ -162,7 +300,7 @@ void pumpOff()
     Serial.println("Pump Off:");
 }
 
-// scheduled pump activation for duration pumpActiveTime
+// scheduled pump activation for duration pumpDuration
 void activatePump()
 {
   if(!isCalibrating() && (pumpLastActivation == 0 || millis() > pumpLastActivation + pumpDelay))
@@ -170,7 +308,7 @@ void activatePump()
     pumpOn();
     display(DISPLAY_STATUS);
 
-    delay(pumpActiveTime);
+    delay(pumpDuration);
 
     pumpOff();        
     display(DISPLAY_STATUS);
@@ -182,6 +320,8 @@ void activatePump()
 
 void readSoilMoisture()
 {
+  Serial.println("Read sensor");
+
   // take 3 samples with a 1 second delay
   for(int i=0; i<3; i++)
   {
@@ -190,26 +330,17 @@ void readSoilMoisture()
   }
   soilMoistureValue = soilMoistureValue / 3;
 
-  Serial.print(millis());
-  Serial.print("\t");
-  Serial.print(soilMoistureValue);
-  Serial.print("\t");
-
-  if(soilMoistureValue > WaterValue && (soilMoistureValue < (WaterValue + intervals))) // V Wet
+  if(soilMoistureValue > waterVal && (soilMoistureValue < (waterVal + intervals))) // V Wet
   {
     soilMoistureStatusId = 0;
-    Serial.println(label[soilMoistureStatusId]);
   }
-  else if(soilMoistureValue > (WaterValue + intervals) && (soilMoistureValue < (AirValue - intervals))) // Wet
+  else if(soilMoistureValue > (waterVal + intervals) && (soilMoistureValue < (airVal - intervals))) // Wet
   {
     soilMoistureStatusId = 1;
-    Serial.println(label[soilMoistureStatusId]);
   }
-  else if(soilMoistureValue < AirValue && (soilMoistureValue > (AirValue - intervals))) // Dry
+  else if(soilMoistureValue < airVal && (soilMoistureValue > (airVal - intervals))) // Dry
   {
     soilMoistureStatusId = 2;
-    Serial.println(label[soilMoistureStatusId]);
-    Serial.println("Activate pump: ");
     activatePump();
   }
 
@@ -224,6 +355,12 @@ void display(int opt)
 
   if (opt == DISPLAY_STATUS)
   {
+    Serial.print(millis());
+    Serial.print("\t");
+    Serial.print(soilMoistureValue);
+    Serial.print("\t");
+    Serial.println(label[soilMoistureStatusId]);
+    
     oled.println("Soil Moisture: ");
     oled.set2X();
     if (isCalibrating())
@@ -237,7 +374,7 @@ void display(int opt)
     oled.set1X();
     oled.println();
     oled.print("Pump:");
-    oled.print(pumpStatus);
+    oled.print(pumpActive);
     oled.print(" / ");
     oled.println(pumpActivations);
   
@@ -249,15 +386,88 @@ void display(int opt)
       oled.println(0);
     }
     oled.print("Dur/Delay:");
-    oled.print(pumpActiveTime / 1000);
+    oled.print(pumpDuration / 1000);
     oled.print(" / ");
     oled.println(pumpDelay / 1000);
+
+  } else if (opt == DISPLAY_CONFIG) {
+
+    Serial.println("Display: Config");
+    Serial.print("Item: ");
+    Serial.println(cfSelectedItem);
+
+    switch (cfSelectedItem)
+    {
+      case CFG_PUMP_DURATION:
+        oled.println(cflabel[CFG_PUMP_DURATION]);
+        oled.set2X();
+        oled.print(pumpDuration);
+
+        Serial.print(cflabel[CFG_PUMP_DURATION]);
+        Serial.print("\t");
+        Serial.println(pumpDuration);        
+        break;
+
+      case CFG_PUMP_DELAY:
+        oled.println(cflabel[CFG_PUMP_DELAY]);
+        oled.set2X();
+        oled.print(pumpDelay);
+
+        Serial.print(cflabel[CFG_PUMP_DELAY]);
+        Serial.print("\t");
+        Serial.println(pumpDelay);
+        break;
+
+      case CFG_AIR_VAL:
+        oled.println(cflabel[CFG_AIR_VAL]);
+        oled.set2X();
+        oled.print(airVal);
+
+        Serial.print(cflabel[CFG_AIR_VAL]);
+        Serial.print("\t");
+        Serial.println(airVal);
+        break;
+
+      case CFG_WATER_VAL:
+        oled.println(cflabel[CFG_WATER_VAL]);
+        oled.set2X();
+        oled.print(waterVal);
+
+        Serial.print(cflabel[CFG_WATER_VAL]);
+        Serial.print("\t");
+        Serial.println(waterVal);
+        break;
+
+      case CFG_INTERVALS:
+        oled.println(cflabel[CFG_INTERVALS]);
+        oled.set2X();
+        oled.print(interval);
+
+        Serial.print(cflabel[CFG_INTERVALS]);
+        Serial.print("\t");
+        Serial.println(interval);
+        break;
+
+      case CFG_CALIBRATION_TIME:
+        oled.println(cflabel[CFG_CALIBRATION_TIME]);
+        oled.set2X();
+        oled.print(calibrationDelay);
+
+        Serial.print(cflabel[CFG_CALIBRATION_TIME]);
+        Serial.print("\t");
+        Serial.println(calibrationDelay);
+        break;
+    
+    }
+
   }
+
 }
 
 void setup() {
   Serial.begin(115200);
-  Serial.println("Soil Moisture Sensor Test");
+
+  Serial.println("Plant Watering");
 
   delay(2000);
 
@@ -265,15 +475,6 @@ void setup() {
   startTime = millis();
   Serial.print("Start ts: ");
   Serial.println(startTime);
-
-  Serial.print("Calibration Delay: ");
-  Serial.println(calibrationDelay);
-
-  Serial.print("Pump Duration: ");
-  Serial.println(pumpActiveTime);
-
-  Serial.print("Pump Delay: ");
-  Serial.println(pumpDelay);
 
   // Sensor / Pump (relay) Pins
   pinMode(soilSensorPin, INPUT);
@@ -306,6 +507,16 @@ void loop() {
   {
     handleButtonEvent();
   }
-  readSoilMoisture();
+  if (millis() > (cfLastActive + cfActiveDelay))
+  {
+    // timeout edit config
+    timeoutCf();
+  }
+
+  if (pumpActive != 1 && cfActive != 1)
+  {
+    readSoilMoisture();
+  }
+
   delay(200);
 }
