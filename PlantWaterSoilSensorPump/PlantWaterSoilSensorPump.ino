@@ -15,7 +15,6 @@
  *  logic to detect faulty sensor values, deactivate pump
  *  out of water / overflow sensor
  *  sleep / wake / low power mode
- *  memory optimise
  *
  */
 
@@ -26,9 +25,9 @@ int waterVal = 570;
 
 const int soilSensorPin = A0;
 unsigned long startTime = 0;
-unsigned long calibrationDelay = 30000; // time for sensor to calibrate (level)
+unsigned long calibrationDelay = 15000; // time for sensor to calibrate (level)
 int interval = 2; // 1-5   
-int intervals = (airVal - waterVal)/interval;
+const int intervals = (airVal - waterVal)/interval;
 int soilMoistureValue = 0;
 
 int soilMoistureStatusId;
@@ -38,9 +37,9 @@ const char l1[] = "Wet";
 const char l2[] = "Dry";
 const char l3[] = "V Dry";
 
-char * label[] = {l0, l1, l2, l3};
+const char *const label[] = {l0, l1, l2, l3};
 
-const int relayPin = 7;
+const int relayPin = 9;
 bool pumpActive = 0;
 unsigned long pumpDuration = 30000; // pump active duration
 unsigned long pumpDelay = 300000; // min time in ms between pump activations
@@ -60,7 +59,7 @@ unsigned long pumpActivations = 0;
 
 SSD1306AsciiWire oled;
 
-bool displayActive = 0; // display active true/false
+bool displayActive = 1; // OLED LCD display status
 unsigned long displayTimeout = 300000; // delay to turn display off
 unsigned long displayLastActivation = 0; // ts of last display activation
 
@@ -79,7 +78,7 @@ volatile int activeButton = 0;
 #define BUTTON_03 0x20
 #define BUTTON_04 0x40
 
-unsigned long buttonDebounce = 150; // msecs
+unsigned long buttonDebounce = 75; // msecs
 unsigned long buttonLastActive = 0;
 
 // config opts: pump, sensor, system
@@ -94,8 +93,8 @@ const char l10[] = "Pump Duration";
 const char l11[] = "Pump Delay";
 const char l12[] = "Air Val";
 const char l13[] = "Water Val";
-const char l14[] = "Wet/Dry Interval";
-const char l15[] = "Calibration Time";
+const char l14[] = "Wet/Dry Int";
+const char l15[] = "Calib Time";
 
 const char *const cflabel[] = {l10, l11, l12, l13, l14, l15};
 
@@ -104,7 +103,8 @@ bool cfActive = 0;
 unsigned long cfLastActive = 0;
 unsigned long cfActiveDelay = 120000;
 int cfSelectedItem = 0;
-
+#define sec 1000
+#define tenSec 10000
 
 // push button IRQ
 void pin2IRQ()
@@ -139,24 +139,35 @@ void handleButtonEvent()
 {
   if (millis() > buttonLastActive + buttonDebounce)
   {
+
+    displayOn(); // pressing any button activates display
+
     switch (activeButton)
     {
-      case BUTTON_01:
+      case BUTTON_01: // edit config
         editConfig();
         break; 
-      case BUTTON_02: // exit edit config (if active) OR pump ON / OFF
+      case BUTTON_02: // exit config / pump ON - OFF
         if (cfActive == 1)
         {
-          timeoutCf();
+          exitCF();
         } else {
-          (pumpActive == 0) ? pumpOn() : pumpOff();          
+          (pumpActive == 0) ? pumpOn() : pumpOff();
         }
         break;
-      case BUTTON_03:
-        incConfigOpt();
+      case BUTTON_03: // increase param / display on
+        if (cfActive == 1)
+        {
+          incConfigOpt();
+        }
         break;
-      case BUTTON_04:
-        decConfigOpt();
+      case BUTTON_04: // decrease param
+        if (cfActive == 1)
+        {
+          decConfigOpt();
+        } else {
+          displayOff();
+        }
         break;
       default:
         break;
@@ -168,6 +179,20 @@ void handleButtonEvent()
   irqStatus = 0;
 }
 
+void displayOn()
+{
+  Serial.println("LCD on");
+  oled.ssd1306WriteCmd(SSD1306_DISPLAYON);
+  displayActive = 1; 
+}
+
+void displayOff()
+{
+  Serial.println("LCD off");
+  oled.ssd1306WriteCmd(SSD1306_DISPLAYOFF);
+  displayActive = 0;
+}
+
 void incConfigOpt()
 {
   if (cfActive == 1)
@@ -175,10 +200,10 @@ void incConfigOpt()
     switch (cfSelectedItem)
     {
       case CFG_PUMP_DURATION:
-        pumpDuration++;
+        pumpDuration = pumpDuration + tenSec;
         break;
       case CFG_PUMP_DELAY:
-        pumpDelay++;
+        pumpDelay = pumpDelay + tenSec;
         break;
       case CFG_AIR_VAL:
         airVal++;
@@ -193,7 +218,7 @@ void incConfigOpt()
         }
         break;
       case CFG_CALIBRATION_TIME:
-        calibrationDelay++;
+        calibrationDelay = calibrationDelay + sec;
         break;
     }    
   }
@@ -208,15 +233,19 @@ void decConfigOpt()
     switch (cfSelectedItem)
     {
       case CFG_PUMP_DURATION:
-        if (pumpDuration > 0)
+        if (pumpDuration > tenSec)
         {
-          pumpDuration--;
+          pumpDuration = pumpDuration - tenSec;
+        } else {
+          pumpDuration = 0;
         }
         break;
       case CFG_PUMP_DELAY:
-        if (pumpDelay > 0)
+        if (pumpDelay > tenSec)
         {
-          pumpDelay--;
+          pumpDelay = pumpDelay - tenSec;
+        } else {
+          pumpDelay = 0;
         }
         break;
       case CFG_AIR_VAL:
@@ -238,9 +267,11 @@ void decConfigOpt()
         }
         break;
       case CFG_CALIBRATION_TIME:
-        if (calibrationDelay > 0)
+        if (calibrationDelay > sec)
         {
-          calibrationDelay--;
+          calibrationDelay = calibrationDelay - sec;
+        } else {
+          calibrationDelay = 0;
         }
         break;
     }    
@@ -266,9 +297,8 @@ void editConfig()
   display(DISPLAY_CONFIG);
 }
 
-void timeoutCf()
+void exitCF()
 {
-  Serial.println("Cf Timeout");
   cfActive = 0;
   cfSelectedItem = 0;
   cfLastActive = 0;
@@ -285,9 +315,12 @@ void pumpOn()
     pumpActive = 1;
     digitalWrite(relayPin, LOW);  
 
+    /*
     Serial.print(millis());
     Serial.print("\t");
     Serial.println("Pump On:");
+    */
+    display(DISPLAY_STATUS);
 }
 
 void pumpOff()
@@ -295,9 +328,13 @@ void pumpOff()
     pumpActive = 0;
     digitalWrite(relayPin, HIGH);
 
+    /*
     Serial.print(millis());
     Serial.print("\t");
     Serial.println("Pump Off:");
+    */
+    display(DISPLAY_STATUS);
+
 }
 
 // scheduled pump activation for duration pumpDuration
@@ -320,13 +357,11 @@ void activatePump()
 
 void readSoilMoisture()
 {
-  Serial.println("Read sensor");
-
   // take 3 samples with a 1 second delay
   for(int i=0; i<3; i++)
   {
     soilMoistureValue += analogRead(soilSensorPin);
-    delay(1000);
+    delay(sec);
   }
   soilMoistureValue = soilMoistureValue / 3;
 
@@ -350,6 +385,8 @@ void readSoilMoisture()
 void display(int opt)
 {
 
+  if (displayActive == 0) return;
+
   oled.setFont(Adafruit5x7);
   oled.clear();
 
@@ -361,11 +398,11 @@ void display(int opt)
     Serial.print("\t");
     Serial.println(label[soilMoistureStatusId]);
     
-    oled.println("Soil Moisture: ");
+    oled.println(F("Soil Moisture: "));
     oled.set2X();
     if (isCalibrating())
     {
-      oled.println("Calibrating..");
+      oled.println(F("Calibrating.."));
     } else {
       oled.print(soilMoistureValue);
       oled.print(" ");
@@ -373,49 +410,49 @@ void display(int opt)
     }
     oled.set1X();
     oled.println();
-    oled.print("Pump:");
+    oled.print(F("Pump:"));
     oled.print(pumpActive);
-    oled.print(" / ");
+    oled.print(F(" "));
     oled.println(pumpActivations);
   
-    oled.print("Pump Last:");
+    oled.print(F("Pump Last:"));
     if (pumpLastActivation > 0)
     {
-      oled.println((millis() - pumpLastActivation) / 1000);
+      oled.println((millis() - pumpLastActivation) / sec);
     } else {
       oled.println(0);
     }
-    oled.print("Dur/Delay:");
-    oled.print(pumpDuration / 1000);
-    oled.print(" / ");
-    oled.println(pumpDelay / 1000);
+    oled.print(F("Dur/Delay:"));
+    oled.print(pumpDuration / sec);
+    oled.print(F(" "));
+    oled.println(pumpDelay / sec);
 
   } else if (opt == DISPLAY_CONFIG) {
-
-    Serial.println("Display: Config");
-    Serial.print("Item: ");
-    Serial.println(cfSelectedItem);
 
     switch (cfSelectedItem)
     {
       case CFG_PUMP_DURATION:
         oled.println(cflabel[CFG_PUMP_DURATION]);
         oled.set2X();
-        oled.print(pumpDuration);
+        oled.print(pumpDuration / sec);
 
+        /*
         Serial.print(cflabel[CFG_PUMP_DURATION]);
         Serial.print("\t");
         Serial.println(pumpDuration);        
+        */
         break;
 
       case CFG_PUMP_DELAY:
         oled.println(cflabel[CFG_PUMP_DELAY]);
         oled.set2X();
-        oled.print(pumpDelay);
+        oled.print(pumpDelay / sec);
 
+        /*
         Serial.print(cflabel[CFG_PUMP_DELAY]);
         Serial.print("\t");
         Serial.println(pumpDelay);
+        */
         break;
 
       case CFG_AIR_VAL:
@@ -423,9 +460,11 @@ void display(int opt)
         oled.set2X();
         oled.print(airVal);
 
+        /*
         Serial.print(cflabel[CFG_AIR_VAL]);
         Serial.print("\t");
         Serial.println(airVal);
+        */
         break;
 
       case CFG_WATER_VAL:
@@ -433,9 +472,11 @@ void display(int opt)
         oled.set2X();
         oled.print(waterVal);
 
+        /*
         Serial.print(cflabel[CFG_WATER_VAL]);
         Serial.print("\t");
         Serial.println(waterVal);
+        */
         break;
 
       case CFG_INTERVALS:
@@ -443,38 +484,40 @@ void display(int opt)
         oled.set2X();
         oled.print(interval);
 
+        /*
         Serial.print(cflabel[CFG_INTERVALS]);
         Serial.print("\t");
         Serial.println(interval);
+        */
         break;
 
       case CFG_CALIBRATION_TIME:
         oled.println(cflabel[CFG_CALIBRATION_TIME]);
         oled.set2X();
-        oled.print(calibrationDelay);
+        oled.print(calibrationDelay / sec);
 
+        /*
         Serial.print(cflabel[CFG_CALIBRATION_TIME]);
         Serial.print("\t");
         Serial.println(calibrationDelay);
+        */
         break;
     
     }
 
+    oled.set1X();
+
   }
 
+  displayLastActivation = millis();
 }
 
 void setup() {
   Serial.begin(115200);
 
-  Serial.println("Plant Watering");
-
-  delay(2000);
-
-  // Init..
   startTime = millis();
-  Serial.print("Start ts: ");
-  Serial.println(startTime);
+
+  Serial.println(F("Begin Plant Watering"));
 
   // Sensor / Pump (relay) Pins
   pinMode(soilSensorPin, INPUT);
@@ -509,13 +552,17 @@ void loop() {
   }
   if (millis() > (cfLastActive + cfActiveDelay))
   {
-    // timeout edit config
-    timeoutCf();
+    exitCF();
   }
 
-  if (pumpActive != 1 && cfActive != 1)
+  if (!isCalibrating() && pumpActive != 1 && cfActive != 1)
   {
     readSoilMoisture();
+  }
+
+  if(millis() > (displayLastActivation + displayTimeout))
+  {
+    displayOff();
   }
 
   delay(200);
