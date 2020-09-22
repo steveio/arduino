@@ -13,6 +13,10 @@ Repository includes:
     Barometer - Real time air pressure radial gauge
     http://bl.ocks.org/steveio/d549b0610fd489e6a09df8f2aa805ad3
 
+Automated Plant Watering / Drip Irrigiation
+Standalone configurable system based on Arduino Pro Mini 3v, Soil Moisture Sensor, 5v Pump, OLED LCD display.
+https://github.com/steveio/arduino/tree/master/PlantWaterSoilSensorPump
+
 Weather Station
 
 Arduino Mega2560 sensor based weather data collector with ESP8266 wifi messaging:
