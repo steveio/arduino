@@ -10,6 +10,8 @@
  * 
  * When soil moisture level is found high (dry) pump is activated for n secs
  * Delays are implemented for sensor calibration and pump activations
+ * Config params (pump duration/delay etc) can be modified at runtime,
+ * EEPROM is used for persistance
  *
  * @todo - 
  *  logic to detect faulty sensor values, deactivate pump
@@ -18,6 +20,7 @@
  *
  */
 
+#include <EEPROM.h>
 
 // sensor calibration
 int airVal = 1024;
@@ -25,19 +28,35 @@ int waterVal = 570;
 
 const int soilSensorPin = A0;
 unsigned long startTime = 0;
-unsigned long calibrationDelay = 15000; // time for sensor to calibrate (level)
+unsigned long calibrationTime = 15000; // time for sensor to calibrate (level)
 int interval = 2; // 1-5   
 const int intervals = (airVal - waterVal)/interval;
 int soilMoistureValue = 0;
 
 int soilMoistureStatusId;
 
-const char l0[] = "V Wet";
-const char l1[] = "Wet";
-const char l2[] = "Dry";
-const char l3[] = "V Dry";
+#define LABEL_STARTMSG 4
+#define LABEL_SOIL_MOISTURE 5
+#define LABEL_SOIL_CALIBRATING 6
+#define LABEL_PUMP 7
+#define LABEL_LAST_ACTIVE 8
+#define LABEL_DUR_DELAY 9
 
-const char *const label[] = {l0, l1, l2, l3};
+
+// string labels
+const char l0[] PROGMEM = "V Wet";
+const char l1[] PROGMEM = "Wet";
+const char l2[] PROGMEM = "Dry";
+const char l3[] PROGMEM = "V Dry";
+const char l4[] PROGMEM = "Plant Watering";
+const char l5[] PROGMEM = "Soil Moisture";
+const char l6[] PROGMEM = "Calibrating";
+const char l7[] PROGMEM = "Pump";
+const char l8[] PROGMEM = "Last Active";
+const char l9[] PROGMEM = "Dur/Delay";
+
+
+const char *const label[] PROGMEM = {l0, l1, l2, l3, l4, l5, l6, l7, l8, l9};
 
 const int relayPin = 9;
 bool pumpActive = 0;
@@ -89,22 +108,71 @@ unsigned long buttonLastActive = 0;
 #define CFG_INTERVALS 0x04
 #define CFG_CALIBRATION_TIME 0x05
 
-const char l10[] = "Pump Duration";
-const char l11[] = "Pump Delay";
-const char l12[] = "Air Val";
-const char l13[] = "Water Val";
-const char l14[] = "Wet/Dry Int";
-const char l15[] = "Calib Time";
+const char l10[] PROGMEM = "Pump Duration";
+const char l11[] PROGMEM = "Pump Delay";
+const char l12[] PROGMEM = "Air Val";
+const char l13[] PROGMEM = "Water Val";
+const char l14[] PROGMEM = "Wet/Dry Int";
+const char l15[] PROGMEM = "Calib Time";
 
-const char *const cflabel[] = {l10, l11, l12, l13, l14, l15};
+const char *const cflabel[] PROGMEM = {l10, l11, l12, l13, l14, l15};
 
 int cfNumItems = 6;
 bool cfActive = 0;
+bool cfModified = 0;
 unsigned long cfLastActive = 0;
 unsigned long cfActiveDelay = 120000;
 int cfSelectedItem = 0;
 #define sec 1000
 #define tenSec 10000
+
+// PROGMEM utils
+char buffer[30];
+
+void getText(const char *const  arr[], int i)
+{
+    strcpy_P(buffer, (char *)pgm_read_word(&(arr[i])));  // Necessary casts and dereferencing, just copy.  
+}
+
+
+// EEPROM status 0: empty (no values), 1: default (initial) values, 2: updated (non default) values
+#define EEPROM_EMPTY 0
+#define EEPROM_DEFAULT 1
+#define EEPROM_MODIFIED 2
+
+void EEPROMInit()
+{
+  int e = EEPROM.read(0);
+
+  if (e == EEPROM_EMPTY) // initial config write to EEPROM
+  {
+    EEPROMRead();
+  } else if (e == EEPROM_MODIFIED) {
+    EEPROMRead();
+  }
+}
+
+void EEPROMRead()
+{
+  pumpDuration = EEPROM.read(1);
+  pumpDelay = EEPROM.read(2);
+  airVal = EEPROM.read(1);
+  waterVal = EEPROM.read(2);
+  interval = EEPROM.read(3);
+  calibrationTime = EEPROM.read(4);
+}
+
+void EEPROMWrite(int e)
+{
+  EEPROM.write(0, e);
+  EEPROM.write(1, pumpDuration);
+  EEPROM.write(2, pumpDelay);
+  EEPROM.write(3, airVal);
+  EEPROM.write(4, waterVal);
+  EEPROM.write(5, interval);
+  EEPROM.write(5, calibrationTime);
+}
+
 
 // push button IRQ
 void pin2IRQ()
@@ -179,20 +247,6 @@ void handleButtonEvent()
   irqStatus = 0;
 }
 
-void displayOn()
-{
-  Serial.println("LCD on");
-  oled.ssd1306WriteCmd(SSD1306_DISPLAYON);
-  displayActive = 1; 
-}
-
-void displayOff()
-{
-  Serial.println("LCD off");
-  oled.ssd1306WriteCmd(SSD1306_DISPLAYOFF);
-  displayActive = 0;
-}
-
 void incConfigOpt()
 {
   if (cfActive == 1)
@@ -218,12 +272,15 @@ void incConfigOpt()
         }
         break;
       case CFG_CALIBRATION_TIME:
-        calibrationDelay = calibrationDelay + sec;
+        calibrationTime = calibrationTime + sec;
         break;
     }    
   }
-  display(DISPLAY_CONFIG);
   cfLastActive = millis();
+  cfModified = 1;
+
+  display(DISPLAY_CONFIG);
+
 }
 
 void decConfigOpt()
@@ -267,17 +324,18 @@ void decConfigOpt()
         }
         break;
       case CFG_CALIBRATION_TIME:
-        if (calibrationDelay > sec)
+        if (calibrationTime > sec)
         {
-          calibrationDelay = calibrationDelay - sec;
+          calibrationTime = calibrationTime - sec;
         } else {
-          calibrationDelay = 0;
+          calibrationTime = 0;
         }
         break;
     }    
   }
-  display(DISPLAY_CONFIG);
+  cfModified = 1;
   cfLastActive = millis();
+  display(DISPLAY_CONFIG);
 }
 
 void editConfig()
@@ -299,27 +357,38 @@ void editConfig()
 
 void exitCF()
 {
+  if (cfModified == 1)
+  {
+    EEPROMWrite(EEPROM_MODIFIED);
+  }
   cfActive = 0;
   cfSelectedItem = 0;
   cfLastActive = 0;
+  cfModified = 0;
   display(DISPLAY_STATUS);
+}
+
+void displayOn()
+{
+  oled.ssd1306WriteCmd(SSD1306_DISPLAYON);
+  displayActive = 1; 
+}
+
+void displayOff()
+{
+  oled.ssd1306WriteCmd(SSD1306_DISPLAYOFF);
+  displayActive = 0;
 }
 
 bool isCalibrating()
 {
-  return (millis() > startTime + calibrationDelay) ? false : true;
+  return (millis() > startTime + calibrationTime) ? false : true;
 }
 
 void pumpOn()
 {
     pumpActive = 1;
     digitalWrite(relayPin, LOW);  
-
-    /*
-    Serial.print(millis());
-    Serial.print("\t");
-    Serial.println("Pump On:");
-    */
     display(DISPLAY_STATUS);
 }
 
@@ -327,14 +396,7 @@ void pumpOff()
 {
     pumpActive = 0;
     digitalWrite(relayPin, HIGH);
-
-    /*
-    Serial.print(millis());
-    Serial.print("\t");
-    Serial.println("Pump Off:");
-    */
     display(DISPLAY_STATUS);
-
 }
 
 // scheduled pump activation for duration pumpDuration
@@ -392,37 +454,40 @@ void display(int opt)
 
   if (opt == DISPLAY_STATUS)
   {
-    Serial.print(millis());
-    Serial.print("\t");
-    Serial.print(soilMoistureValue);
-    Serial.print("\t");
-    Serial.println(label[soilMoistureStatusId]);
-    
-    oled.println(F("Soil Moisture: "));
+    getText(label, LABEL_SOIL_MOISTURE);
+    oled.println(buffer);
+
     oled.set2X();
     if (isCalibrating())
     {
-      oled.println(F("Calibrating.."));
+      getText(label, soilMoistureStatusId);
+      oled.println(buffer);
     } else {
+      getText(label, soilMoistureStatusId);
       oled.print(soilMoistureValue);
       oled.print(" ");
-      oled.println(label[soilMoistureStatusId]);
+      oled.println(buffer);
     }
     oled.set1X();
     oled.println();
-    oled.print(F("Pump:"));
+
+    getText(label, LABEL_PUMP);
+    oled.print(buffer);
     oled.print(pumpActive);
     oled.print(F(" "));
     oled.println(pumpActivations);
-  
-    oled.print(F("Pump Last:"));
+
+    getText(label, LABEL_LAST_ACTIVE);
+    oled.print(buffer);
     if (pumpLastActivation > 0)
     {
       oled.println((millis() - pumpLastActivation) / sec);
     } else {
       oled.println(0);
     }
-    oled.print(F("Dur/Delay:"));
+
+    getText(label, LABEL_DUR_DELAY);
+    oled.print(buffer);
     oled.print(pumpDuration / sec);
     oled.print(F(" "));
     oled.println(pumpDelay / sec);
@@ -432,19 +497,21 @@ void display(int opt)
     switch (cfSelectedItem)
     {
       case CFG_PUMP_DURATION:
-        oled.println(cflabel[CFG_PUMP_DURATION]);
+        getText(cflabel, CFG_PUMP_DURATION);
+        oled.println(buffer);
         oled.set2X();
         oled.print(pumpDuration / sec);
 
         /*
         Serial.print(cflabel[CFG_PUMP_DURATION]);
         Serial.print("\t");
-        Serial.println(pumpDuration);        
+        Serial.println(pumpDuration);
         */
         break;
 
       case CFG_PUMP_DELAY:
-        oled.println(cflabel[CFG_PUMP_DELAY]);
+        getText(cflabel, CFG_PUMP_DELAY);
+        oled.println(buffer);
         oled.set2X();
         oled.print(pumpDelay / sec);
 
@@ -456,7 +523,8 @@ void display(int opt)
         break;
 
       case CFG_AIR_VAL:
-        oled.println(cflabel[CFG_AIR_VAL]);
+        getText(cflabel, CFG_AIR_VAL);
+        oled.println(buffer);
         oled.set2X();
         oled.print(airVal);
 
@@ -468,7 +536,8 @@ void display(int opt)
         break;
 
       case CFG_WATER_VAL:
-        oled.println(cflabel[CFG_WATER_VAL]);
+        getText(cflabel, CFG_WATER_VAL);
+        oled.println(buffer);
         oled.set2X();
         oled.print(waterVal);
 
@@ -480,7 +549,8 @@ void display(int opt)
         break;
 
       case CFG_INTERVALS:
-        oled.println(cflabel[CFG_INTERVALS]);
+        getText(cflabel, CFG_INTERVALS);
+        oled.println(buffer);
         oled.set2X();
         oled.print(interval);
 
@@ -492,14 +562,15 @@ void display(int opt)
         break;
 
       case CFG_CALIBRATION_TIME:
-        oled.println(cflabel[CFG_CALIBRATION_TIME]);
+        getText(cflabel, CFG_CALIBRATION_TIME);
+        oled.println(buffer);
         oled.set2X();
-        oled.print(calibrationDelay / sec);
+        oled.print(calibrationTime / sec);
 
         /*
         Serial.print(cflabel[CFG_CALIBRATION_TIME]);
         Serial.print("\t");
-        Serial.println(calibrationDelay);
+        Serial.println(calibrationTime);
         */
         break;
     
@@ -517,7 +588,8 @@ void setup() {
 
   startTime = millis();
 
-  Serial.println(F("Begin Plant Watering"));
+  getText(label, LABEL_STARTMSG);
+  Serial.println(buffer);
 
   // Sensor / Pump (relay) Pins
   pinMode(soilSensorPin, INPUT);
@@ -534,6 +606,8 @@ void setup() {
     oled.begin(&Adafruit128x64, I2C_ADDRESS);
   #endif // RST_PIN >= 0
 
+  display(DISPLAY_STATUS);
+
   // Buttons & IRQ
   pinMode(2, INPUT_PULLUP);
   pinMode(3, INPUT_PULLUP);
@@ -543,6 +617,8 @@ void setup() {
 
   attachInterrupt(0, pin2IRQ, FALLING);
 
+  // read config values
+  EEPROMInit();
 }
 
 void loop() {
