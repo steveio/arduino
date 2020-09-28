@@ -6,33 +6,54 @@
  * 5v water pump attached via a relay (pin d7 wired normally closed)
  * OLED SSD1306 124*64 display
  * 4 push button control panel (wired pin d2-d6)
- * 5v power (from solar / 12v adapter) via L7805 regulator
+ * 5v power (from solar / battery / 12v DC adapter) via L7805 regulator
+ * RTC DS1307
+ * Lamp via mains 240v AC relay
+ * DIY Capacitive Water Level Sensors (reservoir / overflow)
  * 
- * When soil moisture level is found high (dry) pump is activated for n secs
- * Delays are implemented for sensor calibration and pump activations
+ * Notes -
+ * Timers (24h) define LAMP on/off and watering (pump) times
+ * When soil moisture level is found (dry) pump is activated for n secs
+ * Delays are implemented for sensor calibration and between pump activations
  * Config params (pump duration/delay etc) can be modified at runtime,
  * EEPROM is used for persistance
  *
- * @todo - 
+ * @todo -
  *  logic to detect faulty sensor values, deactivate pump
- *  out of water / overflow sensor
- *  sleep / wake / low power mode
  *
  */
 
+#include <Wire.h>
+#include "RTClib.h"
+#include "SSD1306Ascii.h"
+#include "SSD1306AsciiWire.h"
 #include <EEPROM.h>
 
-// sensor calibration
+
+RTC_DS1307 rtc;
+DateTime dt;
+
+unsigned long startTime = 0;
+unsigned long calibrationTime = 15000; // time for sensor(s) to calibrate
+
+// Pins & mapping to devices
+const int r1Pin = 9; // pump relay #1
+const int r2Pin = 10; // lamp relay
+const int r3Pin = 11; // pump relay #2
+const int s1Pin = A0; // soil moisture sensor #1
+const int s2Pin = A1; // soil moisture sensor #2
+const int s3inPin = A2; // water level sensor #1 (reservoir)
+const int s3outPin = 12; // water level sensor #1
+const int s4inPin = A3; // water level sensor #2 (overflow)
+const int s4outPin = 13; // water level sensor #2
+
+// Soil Moisture Capacitive v1.2 sensor calibration
 int airVal = 1024;
 int waterVal = 570;
 
-const int soilSensorPin = A0;
-unsigned long startTime = 0;
-unsigned long calibrationTime = 15000; // time for sensor to calibrate (level)
 int interval = 2; // 1-5   
 const int intervals = (airVal - waterVal)/interval;
 int soilMoistureValue = 0;
-
 int soilMoistureStatusId;
 
 // text label ids
@@ -60,6 +81,7 @@ int soilMoistureStatusId;
 #define CFG_INTERVALS 19
 #define CFG_CALIBRATION_TIME 20
 #define CFG_RESET 21
+#define CFG_LAMP 22
 
 // pointers to config opt index
 const int cfNumItems = 8;
@@ -88,20 +110,36 @@ const char l18[] PROGMEM = "Water Val";
 const char l19[] PROGMEM = "Wet/Dry Int";
 const char l20[] PROGMEM = "Calib Time";
 const char l21[] PROGMEM = "Reset";
+const char l22[] PROGMEM = "Lamp";
 
-const char *const label[] PROGMEM = {l0, l1, l2, l3, l4, l5, l6, l7, l8, l9, l10, l11, l12, l13, l14, l15, l16, l17, l18, l19, l20, l21};
 
-const int relayPin = 9;
+const char *const label[] PROGMEM = {l0, l1, l2, l3, l4, l5, l6, l7, l8, l9, l10, l11, l12, l13, l14, l15, l16, l17, l18, l19, l20, l21, l22};
+
+// pump #1
 bool pumpActive = 0;
 unsigned long pumpDuration = 30000; // pump active duration
 unsigned long pumpDelay = 300000; // min time in ms between pump activations
-unsigned long pumpLastActivation = 0; // ts of most recent pump activation
-unsigned long pumpActivations = 0;
+unsigned long pumpLastActivation = 0; // ts of most recent activation
+unsigned long pumpActivations = 0; // count of activations
+
+// lamp #1
+bool lampActive = 0;
+bool lampManualActive = 0; // manual toggle (prevents auto-deactivation)
+unsigned long lampLastActivation = 0;
+unsigned long lampActivations = 0;
+
+
+// Timer 32 bit bitmask defines hours (from 24h clock) on / off
+// 0b 00000000 23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 0
+
+// Lamp On - 06:00 - 20:00
+const long lampTimer = 0b00000000000111111111111111000000;
+
+// Watering time(s) - Morning (05:00 - 08:00) Evening (19:00 - 21:00)
+const long waterTimer =0b00000000001110000000000111100000;
+
 
 // SSD1306 Ascii 
-#include <Wire.h>
-#include "SSD1306Ascii.h"
-#include "SSD1306AsciiWire.h"
 
 // 0X3C+SA0 - 0x3C or 0x3D
 #define I2C_ADDRESS 0x3C
@@ -145,9 +183,17 @@ bool resetStatus = 0;
 // PROGMEM utils
 char buffer[30];
 
+// read str from progmem
 void getText(const char *const  arr[], int i)
 {
-    strcpy_P(buffer, (char *)pgm_read_word(&(arr[i])));  // Necessary casts and dereferencing, just copy.  
+    strcpy_P(buffer, (char *)pgm_read_word(&(arr[i])));
+}
+
+// Timer bitmask - check if bit at pos n is set in 32bit long l
+bool checkBitSet(int n, long *l)
+{
+  bool b = (*l >> (long) n) & 1U;
+  return b;
 }
 
 
@@ -272,15 +318,11 @@ void incConfigOpt()
   {
     switch (cfSelectedIdx)
     {
+      case CFG_LAMP:
+        toggleLamp();
+        break;
       case CFG_PUMP_ONOFF:
-        if (pumpActive == 0)
-        {
-          pumpActive = 1;
-          pumpOn();
-        } else {
-          pumpActive = 0;
-          pumpOff();          
-        }
+        togglePump();
         break;
       case CFG_PUMP_DURATION:
         pumpDuration = pumpDuration + tenSec;
@@ -321,15 +363,11 @@ void decConfigOpt()
   {
     switch (cfSelectedIdx)
     {
+      case CFG_LAMP:
+        toggleLamp();
+        break;
       case CFG_PUMP_ONOFF:
-        if (pumpActive == 0)
-        {
-          pumpActive = 1;
-          pumpOn();
-        } else {
-          pumpActive = 0;
-          pumpOff();          
-        }
+        togglePump();
         break;
       case CFG_PUMP_DURATION:
         if (pumpDuration > tenSec)
@@ -438,45 +476,142 @@ bool isCalibrating()
   return (millis() > startTime + calibrationTime) ? false : true;
 }
 
+// manual pump on/off toggle
+void togglePump()
+{
+  if (pumpActive == 0)
+  {
+    pumpActive = 1;
+    pumpOn();
+  } else {
+    pumpActive = 0;
+    pumpOff();
+  }
+}
+
 void pumpOn()
 {
     pumpActive = 1;
-    digitalWrite(relayPin, LOW);  
+    digitalWrite(r1Pin, LOW);
 }
 
 void pumpOff()
 {
     pumpActive = 0;
-    digitalWrite(relayPin, HIGH);
+    digitalWrite(r1Pin, HIGH);
 }
 
 // scheduled pump activation for duration pumpDuration
 void activatePump()
 {
-  if(!isCalibrating() && (pumpLastActivation == 0 || millis() > pumpLastActivation + pumpDelay))
+  if (isCalibrating())
+  {
+    return;
+  }
+
+  // check we are within a defined watering time
+  bool isSet = checkBitSet(dt.hour(), &waterTimer);
+  if (!isSet)
+  {
+    pumpOff();
+    return;
+  }
+
+  if(pumpLastActivation == 0 || (millis() > pumpLastActivation + pumpDelay))
   {
     pumpOn();
-    display(DISPLAY_STATUS);
-
-    delay(pumpDuration);
-
-    pumpOff();        
-    display(DISPLAY_STATUS);
-
     pumpActivations++;
+
+  } else if ((millis() > pumpLastActivation + pumpDuration))
+  {
+    pumpOff();
     pumpLastActivation = millis();
+
   }
+}
+
+// manual lamp on/off toggle
+void toggleLamp()
+{
+  if (lampActive == 0)
+  {
+    lampActive = 1;
+    lampManualActive = 1;
+    lampOn();
+  } else {
+    lampActive = 0;
+    lampManualActive = 0;
+    lampOff();
+  }
+}
+
+void lampOn()
+{
+    lampActive = 1;
+    digitalWrite(r2Pin, HIGH);
+}
+
+void lampOff()
+{
+    lampActive = 0;
+    digitalWrite(r2Pin, LOW);
+}
+
+// scheduled lamp activation
+void activateLamp()
+{
+  dt = rtc.now();
+  bool isSet = checkBitSet(dt.hour(), &lampTimer);
+
+  if ((isSet) && (lampActive != 1))
+  {
+    lampOn();
+    lampActivations++;
+    lampLastActivation = millis();
+  } else {
+    if (!lampManualActive)
+    {
+      lampOff();
+    }
+  }
+
+  display(DISPLAY_STATUS);
+}
+
+// check water level (reservoir / overflow) sensors
+void readWaterLevel()
+{
+  digitalWrite(s3outPin, HIGH);
+  delay(200);
+  int v = readSensorAvg(s3inPin, 3, sec);
+  digitalWrite(s3outPin, LOW);
+
+  // @todo - define thresholds, actions eg system shutdown if out of water or overflow
+}
+
+// take an average from a sensor returning an int value
+int readSensorAvg(int pinId, int numSample, int delayTime)
+{
+  int v;
+  for(int i=0; i<numSample; i++)
+  {
+    v += analogRead(pinId);
+    delay(delayTime);
+  }
+  v = v / numSample;
+  return v;
 }
 
 void readSoilMoisture()
 {
-  // take 3 samples with a 1 second delay
-  for(int i=0; i<3; i++)
+
+  if ((isCalibrating() || pumpActive || cfActive))
   {
-    soilMoistureValue += analogRead(soilSensorPin);
-    delay(sec);
+    return;
   }
-  soilMoistureValue = soilMoistureValue / 3;
+
+  // take 3 samples with a 1 second delay
+  soilMoistureValue = readSensorAvg(s1Pin, 3, sec);
 
   if(soilMoistureValue > waterVal && (soilMoistureValue < (waterVal + intervals))) // V Wet
   {
@@ -491,8 +626,6 @@ void readSoilMoisture()
     soilMoistureStatusId = 2;
     activatePump();
   }
-
-  display(DISPLAY_STATUS);
 }
 
 void display(int opt)
@@ -506,21 +639,22 @@ void display(int opt)
   if (opt == DISPLAY_STATUS)
   {
     getText(label, LABEL_SOIL_MOISTURE);
-    oled.println(buffer);
+    oled.print(buffer);
+    oled.print(F(" "));
 
-    oled.set2X();
     if (isCalibrating())
     {
       getText(label, LABEL_SOIL_CALIBRATING);
       oled.println(buffer);
     } else {
       getText(label, soilMoistureStatusId);
-      oled.print(soilMoistureValue);
-      oled.print(" ");
-      oled.println(buffer);
+      oled.println(soilMoistureValue);
     }
-    oled.set1X();
-    oled.println();
+
+    getText(label, CFG_LAMP);
+    oled.print(buffer);
+    oled.print(F(" "));
+    oled.println(lampActive);
 
     getText(label, LABEL_PUMP);
     oled.print(buffer);
@@ -551,6 +685,19 @@ void display(int opt)
     switch (cfSelectedIdx)
     {
 
+      case CFG_LAMP:
+        getText(label, CFG_LAMP);
+        oled.println(buffer);
+        oled.set2X();
+        if (lampActive == 1)
+        {
+          getText(label, LABEL_ON);
+          oled.println(buffer);
+        } else {
+          getText(label, LABEL_OFF);
+          oled.println(buffer);
+        }
+        break;
       case CFG_PUMP_ONOFF:
         getText(label, CFG_PUMP_ONOFF);
         oled.println(buffer);
@@ -569,12 +716,6 @@ void display(int opt)
         oled.println(buffer);
         oled.set2X();
         oled.print(pumpDuration / sec);
-
-        /*
-        Serial.print(label[CFG_PUMP_DURATION]);
-        Serial.print("\t");
-        Serial.println(pumpDuration);
-        */
         break;
 
       case CFG_PUMP_DELAY:
@@ -582,12 +723,6 @@ void display(int opt)
         oled.println(buffer);
         oled.set2X();
         oled.print(pumpDelay / sec);
-
-        /*
-        Serial.print(label[CFG_PUMP_DELAY]);
-        Serial.print("\t");
-        Serial.println(pumpDelay);
-        */
         break;
 
       case CFG_AIR_VAL:
@@ -595,12 +730,6 @@ void display(int opt)
         oled.println(buffer);
         oled.set2X();
         oled.print(airVal);
-
-        /*
-        Serial.print(label[CFG_AIR_VAL]);
-        Serial.print("\t");
-        Serial.println(airVal);
-        */
         break;
 
       case CFG_WATER_VAL:
@@ -608,12 +737,6 @@ void display(int opt)
         oled.println(buffer);
         oled.set2X();
         oled.print(waterVal);
-
-        /*
-        Serial.print(label[CFG_WATER_VAL]);
-        Serial.print("\t");
-        Serial.println(waterVal);
-        */
         break;
 
       case CFG_INTERVALS:
@@ -621,12 +744,6 @@ void display(int opt)
         oled.println(buffer);
         oled.set2X();
         oled.print(interval);
-
-        /*
-        Serial.print(label[CFG_INTERVALS]);
-        Serial.print("\t");
-        Serial.println(interval);
-        */
         break;
 
       case CFG_CALIBRATION_TIME:
@@ -634,13 +751,8 @@ void display(int opt)
         oled.println(buffer);
         oled.set2X();
         oled.print(calibrationTime / sec);
-
-        /*
-        Serial.print(label[CFG_CALIBRATION_TIME]);
-        Serial.print("\t");
-        Serial.println(calibrationTime);
-        */
         break;
+
       case CFG_RESET:
         getText(label, CFG_RESET);
         oled.println(buffer);
@@ -672,14 +784,31 @@ void setup() {
   getText(label, LABEL_STARTMSG);
   Serial.println(buffer);
 
-  // Sensor / Pump (relay) Pins
-  pinMode(soilSensorPin, INPUT);
-  pinMode(relayPin, OUTPUT);
-  digitalWrite(relayPin, HIGH); // switch pump off
-
-  // OLED LCD Display
   Wire.begin();
   Wire.setClock(400000L);
+
+  rtc.begin();
+  DateTime rtc_t = rtc.now();
+  DateTime arduino_t = DateTime(__DATE__, __TIME__);
+
+  // sync RTC w/ arduino time @ compile time
+  if (rtc_t.unixtime() < arduino_t.unixtime())
+  {
+    rtc.adjust(arduino_t.unixtime());
+  }
+
+  // Sensor / Relay (pump/lamp) Pins
+  pinMode(s1Pin, INPUT);
+  pinMode(r1Pin, OUTPUT);
+  digitalWrite(r1Pin, HIGH); // switch pump off
+  pinMode(r2Pin, OUTPUT);
+  pinMode(s3inPin, INPUT);
+  pinMode(s3outPin, OUTPUT);
+  pinMode(s4inPin, INPUT);
+  pinMode(s4outPin, OUTPUT);
+
+
+  // OLED LCD Display
 
   #if RST_PIN >= 0
     oled.begin(&Adafruit128x64, I2C_ADDRESS, RST_PIN);
@@ -703,6 +832,17 @@ void setup() {
 }
 
 void loop() {
+
+  // check lamp timer and (de)activate
+  activateLamp();
+
+  readSoilMoisture();
+
+  if (pumpActive)
+  {
+    activatePump(); // deactivate pump if pumpDuration expired
+  }
+
   if (irqStatus == 1)
   {
     handleButtonEvent();
@@ -710,11 +850,6 @@ void loop() {
   if (millis() > (cfLastActive + cfActiveDelay))
   {
     exitCF();
-  }
-
-  if (!isCalibrating() && pumpActive != 1 && cfActive != 1)
-  {
-    readSoilMoisture();
   }
 
   if(millis() > (displayLastActivation + displayTimeout))
