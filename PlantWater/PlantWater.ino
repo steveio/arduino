@@ -829,7 +829,9 @@ void setup() {
 
 void loop() {
 
-  if (dt.second() % 20 == 0)
+  DateTime dt = rtc.now();
+
+  if (dt.second() % 10 == 0)
   {
     // check lamp timer and (de)activate
     activateLamp();
@@ -848,7 +850,7 @@ void loop() {
     handleButtonEvent();
   }
 
-  if (millis() > (cfLastActive + cfActiveDelay))
+  if (cfActive && (millis() > (cfLastActive + cfActiveDelay)))
   {
     exitCF();
   }
