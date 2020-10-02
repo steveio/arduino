@@ -96,7 +96,7 @@ const char l4[] PROGMEM = "Plant Watering";
 const char l5[] PROGMEM = "Soil";
 const char l6[] PROGMEM = "Calibrating";
 const char l7[] PROGMEM = "Pump";
-const char l8[] PROGMEM = "Last Active";
+const char l8[] PROGMEM = "Last Water";
 const char l9[] PROGMEM = "Dur/Delay";
 const char l10[] PROGMEM = "Yes";
 const char l11[] PROGMEM = "No";
@@ -126,7 +126,7 @@ bool lampActive = 0;
 bool lampManualActive = 0; // manual toggle (prevents auto-deactivation)
 unsigned long lampLastActivation = 0;
 unsigned long lampActivations = 0;
-
+int lampNextEvent;
 
 // Timer 32 bit bitmask defines hours (from 24h clock) on / off
 // 0b 00000000 23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 0
@@ -575,6 +575,32 @@ void activateLamp()
   }
 }
 
+// return hour of lamp next on/off event
+void getLampNextEvent()
+{
+  dt = rtc.now();
+  bool c = checkBitSet(dt.hour(), &lampTimer);
+
+  for(int i=dt.hour(); i<24; i++)
+  {
+    bool n = checkBitSet(i, &lampTimer);
+    if (n != c)
+    {
+      lampNextEvent = i;
+      return;
+    }
+  }
+  for(int i=0; i<dt.hour(); i++)
+  {
+    bool n = checkBitSet(i, &lampTimer);
+    if (n != c)
+    {
+      lampNextEvent = i;
+      return;
+    }
+  }
+}
+
 // check water level (reservoir / overflow) sensors
 void readWaterLevel()
 {
@@ -638,25 +664,27 @@ void display(int opt)
   if (opt == DISPLAY_STATUS)
   {
 
-    char dtm[32];
-    sprintf(dtm, "%02d/%02d/%02d %02d:%02d" , dt.day(),dt.month(),dt.year(),dt.hour(),dt.minute());
-    oled.println(dtm);
-
     getText(label, LABEL_SOIL_MOISTURE);
     oled.print(buffer);
-    oled.print(F("  "));
+    oled.print(F(" "));
     oled.print(soilMoistureValue);
-    oled.print(F("  "));
+    oled.print(F(" "));
     getText(label, soilMoistureStatusId);
     oled.println(buffer);
 
-    oled.set1X();
     getText(label, CFG_LAMP);
     oled.print(buffer);
     oled.print(F(" "));
     oled.print(lampActive);
     oled.print(F(" / "));
-    oled.println(lampActivations);
+    oled.print(lampActivations);
+    oled.print(F(" / "));
+    getLampNextEvent();
+    char h[2];
+    sprintf(h,"%02d",lampNextEvent);
+    oled.print(h);
+    oled.println(":00");
+
 
     getText(label, LABEL_PUMP);
     oled.print(buffer);
@@ -665,7 +693,6 @@ void display(int opt)
     oled.print(F(" / "));
     oled.println(pumpActivations);
 
-    /*
     getText(label, LABEL_LAST_ACTIVE);
     oled.print(buffer);
     oled.print(F(" "));
@@ -675,7 +702,12 @@ void display(int opt)
     } else {
       oled.println(0);
     }
-    */
+
+    oled.println("");
+
+    char dtm[32];
+    sprintf(dtm, "%02d/%02d/%02d %02d:%02d" , dt.day(),dt.month(),dt.year(),dt.hour(),dt.minute());
+    oled.println(dtm);
 
   } else if (opt == DISPLAY_CONFIG) {
 
