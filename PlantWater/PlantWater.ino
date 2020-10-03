@@ -19,6 +19,8 @@
  * EEPROM is used for persistance
  *
  * @todo -
+ *  schedule events for days of wee
+ *  schedule edit via config UI
  *  logic to detect faulty sensor values, deactivate pump
  *
  */
