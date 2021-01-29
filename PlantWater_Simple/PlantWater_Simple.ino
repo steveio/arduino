@@ -103,10 +103,6 @@ int soilMoistureStatusId[2];
 #define LABEL_CALIB 23 
 
 
-// pointers to config opt index
-const int cfNumItems = 9;
-const int cfStartIdx = 20;
-
 // string labels (lang = EN GB)
 const char ln[] PROGMEM = "";
 const char l0[] PROGMEM = "V Wet";
@@ -317,45 +313,6 @@ void display(int opt)
 
     oled.println("");
 
-    getText(label, LABEL_AIR);
-    oled.print(buffer);
-    getText(label, LABEL_WATER);
-    oled.print(buffer);
-    oled.print(F(" "));
-    oled.print(airVal);
-    oled.print(F(" "));
-    oled.print(F(" "));
-    oled.print(waterVal);
-    oled.print(F(" "));
-    oled.println(interval);
-
-    getText(label, LABEL_LAMP);
-    oled.print(buffer);
-    oled.print(F(" "));
-
-    bool lampStatus = lamp1.isActive();
-    if (lampStatus)
-    {
-      getText(label, LABEL_ON);
-      oled.print(buffer);
-    } else {
-      getText(label, LABEL_OFF);
-      oled.print(buffer);
-    }
-    oled.print(F(" "));
-
-    int nextEvent = lamp1Timer.getNextEvent(dt.hour());
-    char h[2];
-    sprintf(h,"%02d",nextEvent);
-    oled.print(h);
-    oled.println(":00");
-
-    oled.print(F(" "));
-    oled.print(pumpDuration / sec);
-    oled.print(F(" "));
-    oled.print(pumpDelay / sec);
-
-
   }
 
   displayLastActivation = millis();
@@ -403,8 +360,8 @@ void setup() {
   lamp1Timer.init(TIMER_HOUR_OF_DAY, &lamp1TimerBitmask);
   lamp1.initTimer(lamp1Timer);
 
-  // OLED LCD Display
 
+  // OLED LCD Display
   #if RST_PIN >= 0
     oled.begin(&Adafruit128x64, I2C_ADDRESS, RST_PIN);
   #else // RST_PIN >= 0
