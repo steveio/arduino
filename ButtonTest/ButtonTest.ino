@@ -1,4 +1,11 @@
-
+/**
+ * Test Script for Arduino Push Buttons
+ * 
+ * 
+ * @todo 
+ *  - short/long/double press
+ *  - eval button libs / refactor as class
+ */
 
 volatile bool irqStatus = 0;
 volatile int activeButton = 0;

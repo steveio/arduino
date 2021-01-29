@@ -1,18 +1,17 @@
 /**
- * Automated Plant Watering
+ * Automated Inddor Garden System
+ * 
+ *  -- Schedule LED grow LAMP for specific hours of day
+ *  -- automated watering cycle triggered by reading soil moisture sensor
  * 
  * Arduino Pro Mini 3.3v 
  * 2x Capacitive soil moisture sensor v1.2
  * 2x 5v water pump attached via a relay
  * OLED SSD1306 124*64 display
- * 4 push button control panel
  * RTC DS1307
  * Lamp via mains 240v AC relay
  * 
- * Plant watering system with real time configuration via 4 button panel
- * 
- * Config params (pump duration/delay/sample interval) can be modified at runtime,
- * EEPROM is used for persistance
+ * Simple version with static (compile time) configuration and OLED display
  *
  */
 
@@ -20,7 +19,6 @@
 #include "RTClib.h"
 #include "SSD1306Ascii.h"
 #include "SSD1306AsciiWire.h"
-#include <EEPROM.h>
 
 #include "Pump.h"
 #include "Relay.h"
@@ -69,7 +67,6 @@ long lamp1TimerBitmask =0b00000000001111111111111111100000;
 Relay lamp1(r3Pin);
 
 
-
 // Soil Moisture Capacitive v1.2 sensor calibration
 int airVal = 680;
 int waterVal = 326;
@@ -96,17 +93,15 @@ int soilMoistureStatusId[2];
 #define LABEL_OFF 13
 #define LABEL_NEXT 14
 #define LABEL_WATERING 15
+#define LABEL_PUMPONOFF 16
+#define LABEL_PUMPDUR 17
+#define LABEL_PUMPDEL 18
+#define LABEL_LAMP 19
+#define LABEL_AIR 20
+#define LABEL_WATER 21
+#define LABEL_INTERVAL 22
+#define LABEL_CALIB 23 
 
-// config opts: pump, sensor, system
-#define CFG_PUMP_ONOFF 20
-#define CFG_pumpDuration 21
-#define CFG_pumpDelay 22
-#define CFG_LAMP 23
-#define CFG_AIR_VAL 24
-#define CFG_WATER_VAL 25
-#define CFG_INTERVALS 26
-#define CFG_CALIBRATION_TIME 27
-#define CFG_RESET 28
 
 // pointers to config opt index
 const int cfNumItems = 9;
@@ -130,19 +125,17 @@ const char l12[] PROGMEM = "On";
 const char l13[] PROGMEM = "Off";
 const char l14[] PROGMEM = "Next";
 const char l15[] PROGMEM = "Water";
+const char l16[] PROGMEM = "Pump On/Off";
+const char l17[] PROGMEM = "Pump Duration";
+const char l18[] PROGMEM = "Pump Delay";
+const char l19[] PROGMEM = "Lamp";
+const char l20[] PROGMEM = "Air";
+const char l21[] PROGMEM = "Water";
+const char l22[] PROGMEM = "Interval";
+const char l23[] PROGMEM = "Calib Time";
+const char l24[] PROGMEM = "Reset";
 
-
-const char l20[] PROGMEM = "Pump On/Off";
-const char l21[] PROGMEM = "Pump Duration";
-const char l22[] PROGMEM = "Pump Delay";
-const char l23[] PROGMEM = "Lamp";
-const char l24[] PROGMEM = "Air";
-const char l25[] PROGMEM = "Water";
-const char l26[] PROGMEM = "Interval";
-const char l27[] PROGMEM = "Calib Time";
-const char l28[] PROGMEM = "Reset";
-
-const char *const label[] PROGMEM = {l0, l1, l2, l3, l4, l5, l6, l7, l8, l9, l10, l11, l12, l13, l14, l15, ln, ln, ln, ln, l20, l21, l22, l23, l24, l25, l26, l27, l28};
+const char *const label[] PROGMEM = {l0, l1, l2, l3, l4, l5, l6, l7, l8, l9, l10, l11, l12, l13, l14, l15, l16, l17, l18, l19, l20, l21, l22, l23, l24};
 
 
 // SSD1306 Ascii 
@@ -163,34 +156,9 @@ unsigned long displayLastActivation = 0; // ts of last display activation
 #define DISPLAY_CONFIG 0x10
 #define DISPLAY_CALIB  0x20
 
-
-volatile bool irqStatus = 0;
-volatile int activeButton = 0;
-
-// buttons correspond to digital pin set bit in PORTD D3-D6
-// PIND 0 (01), 1 (02), 2 (04), 3 b1 D3 (0x08), 4 b2 D4 (0x10), 5 b3 D5 (0x20), 6 b4 D6 (0x40)
-
-#define BUTTON_01 0x08
-#define BUTTON_02 0x10
-#define BUTTON_03 0x20
-#define BUTTON_04 0x40
-
-unsigned long buttonDebounce = 75; // msecs
-unsigned long buttonLastActive = 0;
-
-bool cfActive = 0;
-bool cfModified = 0;
-unsigned long cfLastActive = 0;
-unsigned long cfActiveDelay = 120000;
-int cfSelectedIdx = cfStartIdx;
-bool resetStatus = 0;
 #define sec 1000
 #define tenSec 10000
 
-// EEPROM status 0: empty (no values), 1: default (initial) values, 2: updated (non default) values
-#define EEPROM_EMPTY 0
-#define EEPROM_DEFAULT 1
-#define EEPROM_MODIFIED 2
 
 // PROGMEM utils
 char buffer[30];
@@ -202,267 +170,10 @@ void getText(const char *const  arr[], int i)
 }
 
 
-void EEPROMInit()
-{
-  int e = EEPROM.read(0);
-
-  if (e == EEPROM_EMPTY) // persist initial config
-  {
-    EEPROMWrite(EEPROM_DEFAULT);
-  } else if (e == EEPROM_MODIFIED) {
-    EEPROMRead();
-  }
-}
-
-void EEPROMRead()
-{
-  pumpDuration = EEPROM.read(1);
-  pumpDelay = EEPROM.read(2);
-  airVal = EEPROM.read(3);
-  waterVal = EEPROM.read(4);
-  interval = EEPROM.read(5);
-  calibrationTime = EEPROM.read(6);
-}
-
-void EEPROMWrite(int e)
-{ 
-  EEPROM.write(0, e);
-  EEPROM.write(1, pumpDuration);
-  EEPROM.write(2, pumpDelay);
-  EEPROM.write(3, airVal);
-  EEPROM.write(4, waterVal);
-  EEPROM.write(5, interval);
-  EEPROM.write(6, calibrationTime);
-}
-
-
-// push button IRQ
-void pin2IRQ()
-{
-  int x;
-  x = PIND; // digital pins 0-7
-
-  if ((x & BUTTON_01) == 0) {
-    activeButton = BUTTON_01;
-  }
-
-  if ((x & BUTTON_02) == 0) {
-    activeButton = BUTTON_02;
-  }
-
-  if ((x & BUTTON_03) == 0) {
-    activeButton = BUTTON_03;
-  }
-
-  if ((x & BUTTON_04) == 0) {
-    activeButton = BUTTON_04;
-  }
-
-  if (activeButton > 0)
-  {
-    irqStatus = 1;
-  }
-}
-
-// button event handler
-void handleButtonEvent()
-{
-  if (millis() > buttonLastActive + buttonDebounce)
-  {
-
-    if (!displayActive)
-    {
-      displayOn(); // pressing any button activates display
-      return;
-    }
-
-    switch (activeButton)
-    {
-      case BUTTON_01: // edit config
-        editConfig();
-        break; 
-      case BUTTON_02: // exit config / pump ON - OFF
-        exitCF();
-        break;
-      case BUTTON_03: // increase param / display on
-        if (cfActive)
-        {
-          incConfigOpt();
-        }
-        break;
-      case BUTTON_04: // decrease param
-        if (cfActive)
-        {
-          decConfigOpt();
-        } else {
-          displayOff();
-        }
-        break;
-      default:
-        break;
-    }
-  }
-
-  activeButton = 0;
-  buttonLastActive = millis();
-  irqStatus = 0;
-}
-
-void incConfigOpt()
-{
-  if (cfActive == 1)
-  {
-    switch (cfSelectedIdx)
-    {
-      case CFG_LAMP:
-        lamp1.toggle();
-        break;
-      case CFG_PUMP_ONOFF:
-        pump1.toggle();
-        pump2.toggle();
-        break;
-      case CFG_pumpDuration:
-        pumpDuration = pumpDuration + tenSec;
-        break;
-      case CFG_pumpDelay:
-        pumpDelay = pumpDelay + tenSec;
-        break;
-      case CFG_AIR_VAL:
-        airVal++;
-        break;
-      case CFG_WATER_VAL:
-        waterVal++;
-        break;
-      case CFG_INTERVALS:
-        if (interval <= 5)
-        {
-          interval++;
-        }
-        break;
-      case CFG_CALIBRATION_TIME:
-        calibrationTime = calibrationTime + sec;
-        break;
-      case CFG_RESET:
-        resetStatus = (resetStatus == 0) ? 1 : 0;
-        break;
-    }    
-  }
-  cfLastActive = millis();
-  cfModified = 1;
-
-  display(DISPLAY_CONFIG);
-
-}
-
-void decConfigOpt()
-{
-  if (cfActive == 1)
-  {
-    switch (cfSelectedIdx)
-    {
-      case CFG_LAMP:
-        lamp1.toggle();
-        break;
-      case CFG_PUMP_ONOFF:
-        pump1.toggle();
-        pump2.toggle();
-        break;
-      case CFG_pumpDuration:
-        if (pumpDuration > tenSec)
-        {
-          pumpDuration = pumpDuration - tenSec;
-        } else {
-          pumpDuration = 0;
-        }
-        break;
-      case CFG_pumpDelay:
-        if (pumpDelay > tenSec)
-        {
-          pumpDelay = pumpDelay - tenSec;
-        } else {
-          pumpDelay = 0;
-        }
-        break;
-      case CFG_AIR_VAL:
-        if (airVal > 0)
-        {
-          airVal--;
-        }
-        break;
-      case CFG_WATER_VAL:
-        if (waterVal > 0)
-        {
-          waterVal--;
-        }
-        break;
-      case CFG_INTERVALS:
-        if (interval > 0)
-        {
-          interval--;
-        }
-        break;
-      case CFG_CALIBRATION_TIME:
-        if (calibrationTime > sec)
-        {
-          calibrationTime = calibrationTime - sec;
-        } else {
-          calibrationTime = 0;
-        }
-        break;
-      case CFG_RESET:
-        resetStatus = (resetStatus == 0) ? 1 : 0;
-        break;
-    }    
-  }
-  cfModified = 1;
-  cfLastActive = millis();
-  display(DISPLAY_CONFIG);
-}
-
-void editConfig()
-{
-  if (cfActive == 0)
-  {
-    cfActive = 1;
-  } else {
-    if (cfSelectedIdx < (cfStartIdx + cfNumItems -1))
-    {
-      cfSelectedIdx++;
-    } else {
-      cfSelectedIdx = cfStartIdx;
-    }
-  }
-  cfLastActive = millis();
-  display(DISPLAY_CONFIG);
-}
-
-void(* resetFunc) (void) = 0;
-
-void exitCF()
-{
-  if (cfModified == 1)
-  {
-    EEPROMWrite(EEPROM_MODIFIED);
-  }
-  if (resetStatus == 1)
-  {
-    EEPROMWrite(EEPROM_EMPTY);
-    resetStatus = 0;
-    resetFunc();
-  }
-  cfActive = 0;
-  cfSelectedIdx = cfStartIdx;
-  cfLastActive = 0;
-  cfModified = 0;
-
-  display(DISPLAY_STATUS);
-}
-
 void displayOn()
 {
   oled.ssd1306WriteCmd(SSD1306_DISPLAYON);
   displayActive = 1;
-  display(DISPLAY_STATUS);
 }
 
 void displayOff()
@@ -544,7 +255,7 @@ void display(int opt)
     getText(label, soilMoistureStatusId[1]);
     oled.println(buffer);
 
-    getText(label, CFG_LAMP);
+    getText(label, LABEL_LAMP);
     oled.print(buffer);
     oled.print(F(" "));
     if (lamp1.isActive())
@@ -596,98 +307,6 @@ void display(int opt)
     sprintf(dtm, "%02d/%02d/%02d %02d:%02d" , dt.day(),dt.month(),dt.year(),dt.hour(),dt.minute());
     oled.println(dtm);
 
-  } else if (opt == DISPLAY_CONFIG) {
-
-    switch (cfSelectedIdx)
-    {
-
-      case CFG_LAMP:
-        getText(label, CFG_LAMP);
-        oled.println(buffer);
-        oled.set2X();
-        if (lamp1.isActive())
-        {
-          getText(label, LABEL_ON);
-          oled.println(buffer);
-        } else {
-          getText(label, LABEL_OFF);
-          oled.println(buffer);
-        }
-        break;
-      case CFG_PUMP_ONOFF:
-        getText(label, CFG_PUMP_ONOFF);
-        oled.println(buffer);
-        oled.set2X();
-        /*
-        if (pumpActive == 1)
-        {
-          getText(label, LABEL_ON);
-          oled.println(buffer);
-        } else {
-          getText(label, LABEL_OFF);
-          oled.println(buffer);          
-        }
-        */
-        break;
-      case CFG_pumpDuration:
-        getText(label, CFG_pumpDuration);
-        oled.println(buffer);
-        oled.set2X();
-        oled.print(pumpDuration / sec);
-        break;
-
-      case CFG_pumpDelay:
-        getText(label, CFG_pumpDelay);
-        oled.println(buffer);
-        oled.set2X();
-        oled.print(pumpDelay / sec);
-        break;
-
-      case CFG_AIR_VAL:
-        getText(label, CFG_AIR_VAL);
-        oled.println(buffer);
-        oled.set2X();
-        oled.print(airVal);
-        break;
-
-      case CFG_WATER_VAL:
-        getText(label, CFG_WATER_VAL);
-        oled.println(buffer);
-        oled.set2X();
-        oled.print(waterVal);
-        break;
-
-      case CFG_INTERVALS:
-        getText(label, CFG_INTERVALS);
-        oled.println(buffer);
-        oled.set2X();
-        oled.print(interval);
-        break;
-
-      case CFG_CALIBRATION_TIME:
-        getText(label, CFG_CALIBRATION_TIME);
-        oled.println(buffer);
-        oled.set2X();
-        oled.print(calibrationTime / sec);
-        break;
-
-      case CFG_RESET:
-        getText(label, CFG_RESET);
-        oled.println(buffer);
-        oled.set2X();
-        if (resetStatus == 1)
-        {
-          getText(label, LABEL_YES);
-          oled.println(buffer);
-        } else {
-          getText(label, LABEL_NO);
-          oled.println(buffer);          
-        }
-        break;
-    }
-
-    oled.set1X();
-
   } else if (opt == DISPLAY_CALIB) {
 
     getText(label, LABEL_STARTMSG);
@@ -698,9 +317,9 @@ void display(int opt)
 
     oled.println("");
 
-    getText(label, CFG_AIR_VAL);
+    getText(label, LABEL_AIR);
     oled.print(buffer);
-    getText(label, CFG_WATER_VAL);
+    getText(label, LABEL_WATER);
     oled.print(buffer);
     oled.print(F(" "));
     oled.print(airVal);
@@ -710,7 +329,7 @@ void display(int opt)
     oled.print(F(" "));
     oled.println(interval);
 
-    getText(label, CFG_LAMP);
+    getText(label, LABEL_LAMP);
     oled.print(buffer);
     oled.print(F(" "));
 
@@ -792,18 +411,6 @@ void setup() {
     oled.begin(&Adafruit128x64, I2C_ADDRESS);
   #endif // RST_PIN >= 0
 
-  // Buttons & IRQ
-  pinMode(2, INPUT_PULLUP);
-  pinMode(3, INPUT_PULLUP);
-  pinMode(4, INPUT_PULLUP);
-  pinMode(5, INPUT_PULLUP);
-  pinMode(6, INPUT_PULLUP);
-
-  attachInterrupt(0, pin2IRQ, FALLING);
-
-  // read config values
-  EEPROMInit();
-
   sampleTimer = millis();
 }
 
@@ -855,20 +462,6 @@ void loop() {
     delay(10000);
   }
 
-  if (irqStatus == 1)
-  {
-    handleButtonEvent();
-  }
-
-  if (cfActive && (millis() > (cfLastActive + cfActiveDelay)))
-  {
-    exitCF();
-  }
-
-  if(millis() > (displayLastActivation + displayTimeout))
-  {
-    displayOff();
-  }
 
   delay(200);
 }
