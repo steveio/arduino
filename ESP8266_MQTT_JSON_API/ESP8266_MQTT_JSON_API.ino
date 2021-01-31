@@ -75,6 +75,8 @@ const int rx_buffer_sz = MSG_BUFFER_SIZE;
 char rx_buffer[rx_buffer_sz];
 
 
+#define MSG_JSON_INVALID 9001
+
 #define MSG_JSON_START 0x7B // "{" begining JSON cmd
 #define MSG_JSON_END 0x7D // "}" end JSON cmd
 
@@ -280,8 +282,21 @@ void processJSONCmd(char * rx_buffer)
   serializeJson(doc, Serial);
 
   Serial.println(" ");
-  
-  //const char* ccmd = doc["cmd"];
+
+  bool validJSON = doc.containsKey("cmd");
+  if (!validJSON)
+  {
+    sendResponse(MSG_JSON_INVALID);
+    return;
+  }
+
+  validJSON = doc.containsKey("data");
+  if (!validJSON)
+  {
+    sendResponse(MSG_JSON_INVALID);
+    return;
+  }
+
   int cmd = atoi(doc["cmd"]);
   const char* data = doc["data"];
 
@@ -289,6 +304,7 @@ void processJSONCmd(char * rx_buffer)
   Serial.println(cmd);
   Serial.print("Data: ");
   Serial.println(data);
+
 
   switch(cmd)
   {
@@ -304,7 +320,7 @@ void processJSONCmd(char * rx_buffer)
         } else if ((int)data[0] == 48) {
           lightOff();
         } else {
-          sendDeviceStatus(DEVICE_LAMP1);
+          sendResponse(DEVICE_LAMP1);
         }
         break;
     case CMD_PUMP :
@@ -315,7 +331,7 @@ void processJSONCmd(char * rx_buffer)
         } else if ((int)data[0] == 48) {
           pumpOff();
         } else {
-          sendDeviceStatus(DEVICE_LAMP1);
+          sendResponse(DEVICE_PUMP1);
         }
         break;
 
@@ -387,7 +403,7 @@ void lightOn()
     }
   }
 
-  sendDeviceStatus(DEVICE_LAMP1);
+  sendResponse(DEVICE_LAMP1);
 }
 
 void lightOff()
@@ -398,7 +414,7 @@ void lightOff()
     lamp1.off();
   }
 
-  sendDeviceStatus(DEVICE_LAMP1);
+  sendResponse(DEVICE_LAMP1);
 }
 
 void pumpOn()
@@ -412,7 +428,7 @@ void pumpOn()
     }
   }
 
-  sendDeviceStatus(DEVICE_PUMP1);
+  sendResponse(DEVICE_PUMP1);
 }
 
 void pumpOff()
@@ -423,17 +439,17 @@ void pumpOff()
     pump1.off();
   }
 
-  sendDeviceStatus(DEVICE_PUMP1);
+  sendResponse(DEVICE_PUMP1);
 }
 
-// emit a JSON MQTT device status msg 
-void sendDeviceStatus(int deviceId)
+// emit a JSON MQTT response msg 
+void sendResponse(int msgId)
 {
   const size_t capacity = JSON_OBJECT_SIZE(2);  
   DynamicJsonDocument doc(capacity);
   JsonObject data = doc.createNestedObject();
 
-  switch(deviceId)
+  switch(msgId)
   {
     case DEVICE_PUMP1 :
       data["pump1"] = (int)pump1.isActive();
@@ -441,6 +457,11 @@ void sendDeviceStatus(int deviceId)
     case DEVICE_LAMP1 :
       data["lamp1"] = (int)lamp1.isActive();
       break;
+    case MSG_JSON_INVALID :
+      data["error"] = "Invalid JSON request";
+      break;
+    default:
+      data["error"] = "Invalid device";
   }
   sendJSONData(doc);
 }
@@ -450,18 +471,8 @@ void sendJSONData(DynamicJsonDocument doc)
 
   Serial.println("sendJSONData()");
 
-  /*
-  const size_t capacity = JSON_OBJECT_SIZE(20);  
-  DynamicJsonDocument doc(capacity);
-  JsonObject data = doc.createNestedObject();
-  data["a"] = "";
-  data["b"] = "";
-  data["c"] = "";
-  */
-
   char json_string[MSG_BUFFER_SIZE];
   serializeJson(doc, json_string, MSG_BUFFER_SIZE);
-
   client.publish(mqtt_channel_pub, json_string);
 }
 
