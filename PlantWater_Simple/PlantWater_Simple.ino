@@ -54,7 +54,7 @@ bool pumpEnabled = true;
 bool lampEnabled = true;
 
 long pumpDuration = 3000;
-long pumpDelay = 5000000;
+long pumpDelay = 15000;
 
 Timer pump1Timer;
 // Timer 32 bit bitmask defines hours (from 24h hours) device is on | off
@@ -75,9 +75,8 @@ Relay lamp1(r3Pin);
 // Soil Moisture Capacitive v1.2 sensor calibration
 int airVal = 680;
 int waterVal = 326;
+const int intervals = (airVal - waterVal) / 3;
 
-int interval = 3; // 1-5 higher increase dryness threshold
-const int intervals = (airVal - waterVal)/interval;
 int soilMoistureVal[2];
 int soilMoistureStatusId[2];
 
@@ -153,7 +152,7 @@ bool displayActive = 1; // OLED LCD display status
 unsigned long displayTimer = 0;
 unsigned long displayTimeout = 300000; // delay to turn display off
 unsigned long displayLastActivation = 0; // ts of last display activation
-unsigned long displayDuration = 3000; 
+unsigned long displayDuration = 2000; 
 int displayIndex = 0;
 int displayNumPages = 2;
 
@@ -219,18 +218,19 @@ void readSoilMoisture(int pinId, int * v, int * id)
   // take 3 samples with a 200 ms delay
   *v = readSensorAvg(pinId, 3, 200);
 
-  if(*v > waterVal && (*v < (waterVal + intervals))) // V Wet
-  {
-    *id = 0;
-  }
-  else if(*v > (waterVal + intervals) && (*v < (airVal - intervals))) // Wet
-  {
-    *id = 1;
-  }
-  else if(*v < airVal && (*v > (airVal - intervals))) // Dry
+  if(*v < airVal && (*v > (airVal - intervals))) // Dry  > 562
   {
     *id = 2;
   }
+  else if(*v < airVal && (*v > (airVal - intervals)) // Wet > 444 - 562
+  {
+    *id = 1;
+  }
+  else
+  {
+    *id = 0; // V Wet 326 - 444
+  }
+
 }
 
 void display(int opt)
@@ -242,8 +242,6 @@ void display(int opt)
   oled.clear();
 
   dt = rtc.now();
-  Serial.println(dt.hour());
-
   if (opt == DISPLAY_STATUS)
   {
 
@@ -376,6 +374,8 @@ void display(int opt)
     oled.println(VERSION_ID);
 
 
+    oled.set1X();
+
     getText(label, LABEL_SOIL_CALIBRATING);
     oled.println(buffer);
 
@@ -465,19 +465,6 @@ void loop() {
         lamp1.off();
       }
     }
-
-
-    Serial.print("Hour: ");
-    Serial.println(dt.hour());
-
-    Serial.print("Pump1: ");
-    Serial.println(pump1.timer.isScheduled(dt.hour()));
-
-    Serial.print("Pump2: ");
-    Serial.println(pump2.timer.isScheduled(dt.hour()));
-
-    Serial.print("Lamp1: ");
-    Serial.println(lamp1.timer.isScheduled(dt.hour()));
 
   
     // read soil moisture - soilMoistureStatusId: { V_WET 0, WET 1, DRY 2, V_DRY 3 }
