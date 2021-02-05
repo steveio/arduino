@@ -27,8 +27,10 @@
 RTC_DS1307 rtc;
 DateTime dt;
 
+#define VERSION_ID 1.0
+
 unsigned long startTime = 0;
-unsigned long calibrationTime = 15000; // time for sensor(s) to calibrate
+unsigned long calibrationTime = 1500; // time for sensor(s) to calibrate
 unsigned long sampleInterval = 10000;  // sample frequency in ms
 unsigned long sampleTimer = 0;
 
@@ -40,6 +42,8 @@ const int s1Pin = A1; // soil moisture sensor #1
 const int s2Pin = A2; // soil moisture sensor #2
 
 
+
+
 /*
  * Define devices and associated timings
  * 
@@ -49,13 +53,14 @@ const int s2Pin = A2; // soil moisture sensor #2
 bool pumpEnabled = true;
 bool lampEnabled = true;
 
-long pumpDuration = 50000;
+long pumpDuration = 3000;
 long pumpDelay = 5000000;
 
 Timer pump1Timer;
 // Timer 32 bit bitmask defines hours (from 24h hours) device is on | off
 // 0b 00000000 23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 0
-long pump1TimerBitmask = 0b00000000000000000000001111100000;
+long pump1TimerBitmask = 0b00000000000011111111111111100000;
+
 Pump pump1(r1Pin, pumpDuration, pumpDelay); // (<pin-id> <duration> <delay>)
 
 Timer pump2Timer;
@@ -81,7 +86,7 @@ int soilMoistureStatusId[2];
 #define LABEL_WET 1
 #define LABEL_DRY 2
 #define LABEL_V_DRY 3
-#define LABEL_STARTMSG 4
+#define LABEL_PLANT 4
 #define LABEL_SOIL_MOISTURE 5
 #define LABEL_SOIL_CALIBRATING 6
 #define LABEL_PUMP 7
@@ -93,7 +98,7 @@ int soilMoistureStatusId[2];
 #define LABEL_OFF 13
 #define LABEL_NEXT 14
 #define LABEL_WATERING 15
-#define LABEL_PUMPONOFF 16
+#define LABEL_NOTSCHEDULED 16
 #define LABEL_PUMPDUR 17
 #define LABEL_PUMPDEL 18
 #define LABEL_LAMP 19
@@ -109,7 +114,7 @@ const char l0[] PROGMEM = "V Wet";
 const char l1[] PROGMEM = "Wet";
 const char l2[] PROGMEM = "Dry";
 const char l3[] PROGMEM = "V Dry";
-const char l4[] PROGMEM = "Plant Watering";
+const char l4[] PROGMEM = "Plant";
 const char l5[] PROGMEM = "Soil";
 const char l6[] PROGMEM = "Calibrating";
 const char l7[] PROGMEM = "Pump";
@@ -121,7 +126,7 @@ const char l12[] PROGMEM = "On";
 const char l13[] PROGMEM = "Off";
 const char l14[] PROGMEM = "Next";
 const char l15[] PROGMEM = "Water";
-const char l16[] PROGMEM = "Pump On/Off";
+const char l16[] PROGMEM = "Not Scheduled";
 const char l17[] PROGMEM = "Pump Duration";
 const char l18[] PROGMEM = "Pump Delay";
 const char l19[] PROGMEM = "Lamp";
@@ -145,8 +150,12 @@ const char *const label[] PROGMEM = {l0, l1, l2, l3, l4, l5, l6, l7, l8, l9, l10
 SSD1306AsciiWire oled;
 
 bool displayActive = 1; // OLED LCD display status
+unsigned long displayTimer = 0;
 unsigned long displayTimeout = 300000; // delay to turn display off
 unsigned long displayLastActivation = 0; // ts of last display activation
+unsigned long displayDuration = 3000; 
+int displayIndex = 0;
+int displayNumPages = 2;
 
 #define DISPLAY_STATUS 0x01
 #define DISPLAY_CONFIG 0x10
@@ -232,81 +241,140 @@ void display(int opt)
   oled.setFont(Adafruit5x7);
   oled.clear();
 
+  dt = rtc.now();
+  Serial.println(dt.hour());
+
   if (opt == DISPLAY_STATUS)
   {
 
-    getText(label, LABEL_SOIL_MOISTURE);
-    oled.print(buffer);
-    oled.print(F("#1 "));
-    oled.print(soilMoistureVal[0]);
-    oled.print(F(" "));
-    getText(label, soilMoistureStatusId[0]);
-    oled.println(buffer);
-
-    getText(label, LABEL_SOIL_MOISTURE);
-    oled.print(buffer);
-    oled.print(F("#2 "));
-    oled.print(soilMoistureVal[1]);
-    oled.print(F(" "));
-    getText(label, soilMoistureStatusId[1]);
-    oled.println(buffer);
-
-    getText(label, LABEL_LAMP);
-    oled.print(buffer);
-    oled.print(F(" "));
-    if (lamp1.isActive())
+    switch(displayIndex)
     {
-      getText(label, LABEL_ON);
-      oled.print(buffer);
-    } else {
-      getText(label, LABEL_OFF);
-      oled.print(buffer);
+      case 0:
+
+        getText(label, LABEL_SOIL_MOISTURE);
+        oled.print(buffer);
+        oled.println(F(" #1 "));
+        oled.set2X();
+        oled.print(soilMoistureVal[0]);
+        oled.print(F(" "));
+        getText(label, soilMoistureStatusId[0]);
+        oled.println(buffer);
+    
+        oled.set1X();
+
+        oled.println("");
+
+        getText(label, LABEL_PUMP);
+        oled.print(buffer);
+        oled.println(F(" #1 "));
+        if (pump1.isActive())
+        {
+          getText(label, LABEL_ON);
+          oled.print(buffer);
+        } else {
+          getText(label, LABEL_OFF);
+          oled.print(buffer);
+        }
+
+        if (pump1.timer.isScheduled(dt.hour()) == 0)
+        {
+          oled.print(F(" / "));
+          getText(label, LABEL_NOTSCHEDULED);
+          oled.print(buffer);          
+        }
+
+        break;
+
+      case 1:
+        getText(label, LABEL_SOIL_MOISTURE);
+        oled.print(buffer);
+        oled.println(F(" #2 "));
+        oled.set2X();
+        oled.print(soilMoistureVal[1]);
+        oled.print(F(" "));
+        getText(label, soilMoistureStatusId[1]);
+        oled.println(buffer);
+    
+        oled.set1X();
+        oled.println("");
+
+        getText(label, LABEL_PUMP);
+        oled.print(buffer);
+        oled.println(F(" #2 "));
+        if (pump2.isActive())
+        {
+          getText(label, LABEL_ON);
+          oled.print(buffer);
+        } else {
+          getText(label, LABEL_OFF);
+          oled.print(buffer);
+        }
+
+        if (pump2.timer.isScheduled(dt.hour()) == 0)
+        {
+          oled.print(F(" / "));
+          getText(label, LABEL_NOTSCHEDULED);
+          oled.print(buffer);          
+        }
+
+        break;
+      case 2:
+
+        oled.set1X();
+        getText(label, LABEL_LAMP);
+        oled.print(buffer);
+        oled.print(F("#1 "));
+        if (lamp1.isActive())
+        {
+          getText(label, LABEL_ON);
+          oled.print(buffer);
+        } else {
+          getText(label, LABEL_OFF);
+          oled.print(buffer);
+        }
+
+        if (!lamp1.timer.isScheduled(dt.hour()))
+        {
+          oled.print(F(" / "));
+          getText(label, LABEL_NOTSCHEDULED);
+          oled.print(buffer);          
+        }
+
+        oled.println();
+
+        getText(label, LABEL_NEXT);
+        oled.print(buffer);          
+        oled.println(F(": "));
+
+        int nextEvent = lamp1.timer.getNextEvent(dt.hour());
+        char h[2];
+        sprintf(h,"%02d",nextEvent);
+        oled.print(h);
+        oled.println(":00");
+        oled.println("");
+
+        break;
     }
-    oled.print(F(" "));
-    oled.print(lamp1.getActivations());
-    oled.print(F(" "));
 
-    int nextEvent = lamp1.timer.getNextEvent(dt.hour());
-    char h[2];
-    sprintf(h,"%02d",nextEvent);
-    oled.print(h);
-    oled.println(":00");
 
-    getText(label, LABEL_PUMP);
-    oled.print(buffer);
-    oled.print(F(" "));
-    /*
-    if (pumpActive == 1)
-    {
-      getText(label, LABEL_ON);
-      oled.print(buffer);
-    } else {
-      getText(label, LABEL_OFF);
-      oled.print(buffer);
-    }
-    oled.print(F(" "));
-    oled.println(pumpActivations);
-    getText(label, LABEL_LAST_ACTIVE);
-    oled.print(buffer);
-    oled.print(F(" "));
-    if (pumpLastActivation > 0)
-    {
-      oled.println((millis() - pumpLastActivation) / sec);
-    } else {
-      oled.println(0);
-    }
-    */
 
-    oled.println("");
-
-    char dtm[32];
-    sprintf(dtm, "%02d/%02d/%02d %02d:%02d" , dt.day(),dt.month(),dt.year(),dt.hour(),dt.minute());
-    oled.println(dtm);
+    //char dtm[32];
+    //sprintf(dtm, "%02d/%02d/%02d %02d:%02d" , dt.day(),dt.month(),dt.year(),dt.hour(),dt.minute());
+    //oled.println(dtm);
 
   } else if (opt == DISPLAY_CALIB) {
 
-    getText(label, LABEL_STARTMSG);
+    oled.set2X();
+
+    getText(label, LABEL_PLANT);
     oled.println(buffer);
+
+    getText(label, LABEL_WATERING);
+    oled.print(buffer);
+
+    oled.print(" ");
+    oled.println(VERSION_ID);
+
 
     getText(label, LABEL_SOIL_CALIBRATING);
     oled.println(buffer);
@@ -319,12 +387,11 @@ void display(int opt)
 }
 
 void setup() {
+
   Serial.begin(115200);
 
   startTime = millis();
-
-  getText(label, LABEL_STARTMSG);
-  Serial.print(buffer);
+  displayTimer = millis();
 
   Wire.begin();
   Wire.setClock(400000L);
@@ -373,6 +440,17 @@ void setup() {
 
 void loop() {
 
+  if (millis() > displayTimer + displayDuration)
+  {
+    displayIndex++;
+    if (displayIndex == displayNumPages + 1)
+    {
+      displayIndex = 0;
+    }
+    displayTimer = millis();
+  }
+
+
   if (!isCalibrating() && millis() >= sampleTimer + sampleInterval)
   {
 
@@ -387,6 +465,20 @@ void loop() {
         lamp1.off();
       }
     }
+
+
+    Serial.print("Hour: ");
+    Serial.println(dt.hour());
+
+    Serial.print("Pump1: ");
+    Serial.println(pump1.timer.isScheduled(dt.hour()));
+
+    Serial.print("Pump2: ");
+    Serial.println(pump2.timer.isScheduled(dt.hour()));
+
+    Serial.print("Lamp1: ");
+    Serial.println(lamp1.timer.isScheduled(dt.hour()));
+
   
     // read soil moisture - soilMoistureStatusId: { V_WET 0, WET 1, DRY 2, V_DRY 3 }
 
@@ -394,14 +486,14 @@ void loop() {
     readSoilMoisture(s1Pin, &soilMoistureVal[0], &soilMoistureStatusId[0]);
     if (soilMoistureStatusId[0] >= 2)
     {
-      pump1.activate(dt.hour(), NULL);
+      pump1.activate(dt.hour());
     }
 
     // sensor #2
     readSoilMoisture(s2Pin, &soilMoistureVal[1], &soilMoistureStatusId[1]);
     if (soilMoistureStatusId[0] >= 2)
     {
-      pump2.activate(dt.hour(), NULL);
+      pump2.activate(dt.hour());
     }
 
     // check for pump deactivation
