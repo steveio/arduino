@@ -55,7 +55,7 @@ const int s2Pin = A2; // soil moisture sensor #2
  */
 
 // master on/off switches
-bool pumpEnabled = false;
+bool pumpEnabled = true;
 bool lampEnabled = true;
 
 long pumpDuration = 3000;
