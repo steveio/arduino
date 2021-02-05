@@ -13,6 +13,11 @@
  * 
  * Simple version with static (compile time) configuration and OLED display
  *
+ * @requires Library TimedDevice ( https://github.com/steveio/TimedDevice )
+ *
+ * @todo - calculate number of pump activations based on reservoir capacity
+ * @todo - overflow water level sensor w/ auto pump shutdown
+ *
  */
 
 #include <Wire.h>
@@ -50,7 +55,7 @@ const int s2Pin = A2; // soil moisture sensor #2
  */
 
 // master on/off switches
-bool pumpEnabled = true;
+bool pumpEnabled = false;
 bool lampEnabled = true;
 
 long pumpDuration = 3000;
@@ -222,7 +227,7 @@ void readSoilMoisture(int pinId, int * v, int * id)
   {
     *id = 2;
   }
-  else if(*v < airVal && (*v > (airVal - intervals)) // Wet > 444 - 562
+  else if(*v < airVal && (*v > (airVal - intervals * 2))) // Wet > 444 - 562
   {
     *id = 1;
   }
@@ -473,14 +478,20 @@ void loop() {
     readSoilMoisture(s1Pin, &soilMoistureVal[0], &soilMoistureStatusId[0]);
     if (soilMoistureStatusId[0] >= 2)
     {
-      pump1.activate(dt.hour());
+      if (pumpEnabled)
+      {
+        pump1.activate(dt.hour());
+      }
     }
 
     // sensor #2
     readSoilMoisture(s2Pin, &soilMoistureVal[1], &soilMoistureStatusId[1]);
     if (soilMoistureStatusId[0] >= 2)
     {
-      pump2.activate(dt.hour());
+      if (pumpEnabled)
+      {
+        pump2.activate(dt.hour());
+      }
     }
 
     // check for pump deactivation
