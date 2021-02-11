@@ -47,15 +47,13 @@ const int s1Pin = A1; // soil moisture sensor #1
 const int s2Pin = A2; // soil moisture sensor #2
 
 
-
-
 /*
  * Define devices and associated timings
  * 
  */
 
 // master on/off switches
-bool pumpEnabled = true;
+bool pumpEnabled = false;
 bool lampEnabled = true;
 
 long pumpDuration = 3000;
@@ -73,7 +71,7 @@ long pump2TimerBitmask = 0b00000000000000000000001111100000;
 Pump pump2(r2Pin, pumpDuration, pumpDelay);
 
 Timer lamp1Timer;
-long lamp1TimerBitmask =0b00000000001111111111111111100000;
+long lamp1TimerBitmask =0b00000000000111111111111111100000;
 Relay lamp1(r3Pin);
 
 
@@ -356,14 +354,15 @@ void display(int opt)
         oled.println(":00");
         oled.println("");
 
+        char dtm[32];
+        sprintf(dtm, "%02d/%02d/%02d %02d:%02d" , dt.day(),dt.month(),dt.year(),dt.hour(),dt.minute());
+        oled.println(dtm);
+
         break;
     }
 
 
 
-    //char dtm[32];
-    //sprintf(dtm, "%02d/%02d/%02d %02d:%02d" , dt.day(),dt.month(),dt.year(),dt.hour(),dt.minute());
-    //oled.println(dtm);
 
   } else if (opt == DISPLAY_CALIB) {
 
@@ -406,7 +405,7 @@ void setup() {
   DateTime arduino_t = DateTime(__DATE__, __TIME__);
 
   // sync RTC w/ arduino time @ compile time
-  if (dt.unixtime() < arduino_t.unixtime())
+  if (dt.unixtime() != arduino_t.unixtime())
   {
     rtc.adjust(arduino_t.unixtime());
   }
@@ -421,7 +420,7 @@ void setup() {
   digitalWrite(r2Pin, HIGH);
 
   pinMode(r3Pin, OUTPUT);
-
+  pinMode(r3Pin, HIGH);
 
   pump1Timer.init(TIMER_HOUR_OF_DAY, &pump1TimerBitmask);
   pump1.initTimer(pump1Timer);
@@ -464,7 +463,7 @@ void loop() {
 
     if (lampEnabled)
     {
-      if (!lamp1.isActive() && lamp1.timer.isScheduled(dt.hour(), NULL)) {
+      if (lamp1.isActive() && lamp1.timer.isScheduled(dt.hour(), NULL)) {
         lamp1.on();
       } else if (lamp1.isActive() && !lamp1.timer.isScheduled(dt.hour(), NULL)) {
         lamp1.off();
