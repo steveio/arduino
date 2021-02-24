@@ -1,13 +1,14 @@
 /*
- * ESP32 GPS LoRA Sender
+ * ESP32 GPS LoRA Sender (Multitask)
  * 
  * Demonstrates ESP32 / FreeRTOS features:
  *   - multi task SMP parrallel processing with CPU core affinity
  *   - task notification (IPC)
  *   - timer / ISR
-  *   - queue
- *   - semaphores to serialise / lock data structure read/write
-
+ *   - queue (pointer)
+ *   - semaphore mutex
+ *
+ * Tested on TTGO ESP32 v2 1.6
  *
  */
 
@@ -124,9 +125,7 @@ void setup() {
 
 
 /**
- * The task which runs setup() and loop() is created on core 1 with priority 1.
- * That task is currently running loop() forever
- * 
+ * The task which runs setup() and loop() is created on core 1 with priority 1
  */
 void loop() {
   //vTaskDelay(100); //  yields the CPU on core 1
