@@ -28,6 +28,8 @@ SPIClass spiSD(HSPI);
 #define SSD_MOSI 15
 #define SSD_CS 13
 
+bool sdCardEnabled = true;
+
 
 HardwareSerial Serial1(1);
 
@@ -49,9 +51,9 @@ HardwareSerial Serial1(1);
 //915E6 for North America
 #define BAND 866E6
 
-bool loraEnabled = false;
+bool loraEnabled = true;
 unsigned long loraLastEvent;
-unsigned long loraTxDelay = 10000;
+unsigned long loraSendInterval = 10000;
 int loraCounter = 0;
 
 
@@ -99,7 +101,9 @@ void setup()
 
   Serial.println("LoRA GPS Transmitter");
 
-  Serial1.begin(HWSERIAL_BAUD, SERIAL_8N1, HWSERIAL_RX, HWSERIAL_TX);
+  //Serial1.begin(HWSERIAL_BAUD, SERIAL_8N1, HWSERIAL_RX, HWSERIAL_TX);
+
+  Serial1.begin(9600, SERIAL_8N1, 12, 13);
 
   //reset OLED display via software
   pinMode(OLED_RST, OUTPUT);
@@ -125,12 +129,10 @@ void setup()
   uint8_t cardType = SD.cardType();
   if(cardType == CARD_NONE) {
     Serial.println("No SD card attached");
-    return;
   }
   Serial.println("Initializing SD card...");
   if (!SD.begin(SD_CS)) {
     Serial.println("ERROR - SD card initialization failed!");
-    return;    // init failed
   }
 
   // If the data.txt file doesn't exist
@@ -139,7 +141,7 @@ void setup()
   if(!file) {
     Serial.println("File doens't exist");
     Serial.println("Creating file...");
-    writeFile(SD, "/data.txt", "Reading ID, Date, Hour, Temperature \r\n");
+    writeFile(SD, "/data.txt", "Lat, Lon, Alt, Course, Speed \r\n");
   }
   else {
     Serial.println("File already exists");  
@@ -173,121 +175,127 @@ void setup()
 void loop()
 {
 
-  bool newData = false;
-
-  // For one second we parse GPS data and report some key values
-  for (unsigned long start = millis(); millis() - start < 1000;)
+  gps.f_get_position(&lat,&lon); // get latitude and longitude
+  
+  if (lat != TinyGPS::GPS_INVALID_F_ANGLE && lon != TinyGPS::GPS_INVALID_F_ANGLE)
   {
+    
+    float gps_alt = gps.f_altitude();
+    float gps_course = gps.f_course();
+    float gps_speed = gps.f_speed_kmph();
+    
+    Serial.println(" ");
+    Serial.println("GPS Signal");
+    Serial.println("Position: ");
+    Serial.print("Latitude:");
+    Serial.print(lat,6);
+    Serial.print("; ");
+    Serial.print("Longitude:");
+    Serial.println(lon,6);     
+    Serial.print("Altitude:");
+    Serial.println(gps_alt,6); 
+    Serial.print("Course:");
+    Serial.println(gps_course,6); 
+    Serial.print("Speed (kmph):");
+    Serial.println(gps_speed,6); 
+    Serial.println(" "); 
 
+    int sz = 64;
+    char msg[sz];
+
+    if (loraEnabled && millis() > loraLastEvent + loraSendInterval)
+    {
+      Serial.print("LoRA Sending packet: ");
+      Serial.println(loraCounter);
+    
+      sprintf(msg, "%f,%f,%f,%f,%f" , lat, lon, gps_alt, gps_course, gps_speed);
+    
+      Serial.print("LoRA Msg: ");
+      Serial.println(msg);
+    
+      //Send LoRa packet to receiver
+      LoRa.beginPacket();
+      LoRa.print(msg);
+      LoRa.endPacket();  
+      loraCounter++;
+      loraLastEvent = millis();
+    
+      clearBuffer(msg, sz);
+  
+      loraLastEvent = millis();
+    }
+
+    if (sdCardEnabled)
+    {
+      sprintf(msg, "%f,%f,%f,%f,%f \r\n" , lat, lon, gps_alt, gps_course, gps_speed);
+      writeFile(SD, "/data.txt", msg);
+    }
+    
+    // Display information
+    display.clearDisplay();
+    display.setCursor(0,0);
+    display.print("Lat: ");
+    display.print(lat);
+    
+    display.setCursor(0,10);
+    display.print("Lon: ");
+    display.print(lon);
+    
+    display.setCursor(0,20);
+    display.print("Alt: ");
+    display.print(gps_alt);
+    
+    display.setCursor(0,30);
+    display.print("Course:");
+    display.print(gps_course);
+    display.print(" (deg) ");
+    
+    display.setCursor(0,40);
+    display.print("Speed:");
+    display.print(gps_speed);
+    display.print(" (kmph)");
+    
+    display.setCursor(0,50);
+    display.print("LoRA Tx:");
+    display.print(loraCounter);
+    
+    display.display();
+    
+  }
+  
+  unsigned long chars = 0;
+  unsigned short sentences = 0, failed = 0;
+  
+  gps.stats(&chars, &sentences, &failed);
+  
+  Serial.print("Chars:");
+  Serial.println(chars);
+  
+  Serial.print("Words:");
+  Serial.println(sentences);
+  
+  Serial.print("Failed:");
+  Serial.println(failed);
+  
+  if (chars == 0)
+  Serial.println("** No characters received from GPS: check wiring **");
+
+
+  smartdelay(1000);
+}
+
+static void smartdelay(unsigned long ms)
+{
+  unsigned long start = millis();
+  do 
+  {
     while (Serial1.available())
     {
       gps.encode(Serial1.read());
-      newData = true;
     }
-  }
-
-  if (newData)
-  {
-    gps.f_get_position(&lat,&lon); // get latitude and longitude
-
-    //if (lat != TinyGPS::GPS_INVALID_F_ANGLE && lon != TinyGPS::GPS_INVALID_F_ANGLE)
-    //{
-      
-      float gps_alt = gps.f_altitude();
-      float gps_course = gps.f_course();
-      float gps_speed = gps.f_speed_kmph();
-  
-      Serial.println(" ");
-      Serial.println("GPS Signal");
-      Serial.println("Position: ");
-      Serial.print("Latitude:");
-      Serial.print(lat,6);
-      Serial.print("; ");
-      Serial.print("Longitude:");
-      Serial.println(lon,6);     
-      Serial.print("Altitude:");
-      Serial.println(gps_alt,6); 
-      Serial.print("Course:");
-      Serial.println(gps_course,6); 
-      Serial.print("Speed (kmph):");
-      Serial.println(gps_speed,6); 
-      Serial.println(" "); 
-    
-      if (loraEnabled)
-      {
-        Serial.print("LoRA Sending packet: ");
-        Serial.println(loraCounter);
-    
-        int sz = 64;
-        char msg[sz];
-        sprintf(msg, "%f,%f,%f,%f,%f" , lat, lon, gps_alt, gps_course, gps_speed);
-    
-        Serial.print("LoRA Msg: ");
-        Serial.println(msg);
-  
-        //Send LoRa packet to receiver
-        LoRa.beginPacket();
-        LoRa.print(msg);
-        LoRa.endPacket();  
-        loraCounter++;
-        loraLastEvent = millis();
-  
-        clearBuffer(msg, sz);
-  
-      }
-  
-  
-      // Display information
-      display.clearDisplay();
-      display.setCursor(0,0);
-      display.print("Lat: ");
-      display.print(lat);
-    
-      display.setCursor(0,10);
-      display.print("Lon: ");
-      display.print(lon);
-      
-      display.setCursor(0,20);
-      display.print("Alt: ");
-      display.print(gps_alt);
-      
-      display.setCursor(0,30);
-      display.print("Course:");
-      display.print(gps_course);
-      display.print(" (deg) ");
-    
-      display.setCursor(0,40);
-      display.print("Speed:");
-      display.print(gps_speed);
-      display.print(" (kmph)");
-    
-      display.setCursor(0,50);
-      display.print("LoRA Tx:");
-      display.print(loraCounter);
-    
-      display.display();
-  
-    //}
-
-    unsigned long chars = 0;
-    unsigned short sentences = 0, failed = 0;
-
-    gps.stats(&chars, &sentences, &failed);
-
-    Serial.print("Chars:");
-    Serial.println(chars);
-
-    Serial.print("Words:");
-    Serial.println(sentences);
-
-    Serial.print("Failed:");
-    Serial.println(failed);
-
-    if (chars == 0)
-      Serial.println("** No characters received from GPS: check wiring **");
-
-  }
+  } while (millis() - start < ms);
 }
+
 
 
 void clearBuffer(char * buff, int sz)
