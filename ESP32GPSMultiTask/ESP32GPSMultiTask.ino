@@ -80,13 +80,14 @@ unsigned long isrCounter = 0;
 static TaskHandle_t xGPSTask;
 static TaskHandle_t xLoRATask;
 static TaskHandle_t xSDWriteTask;
+static TaskHandle_t xOLEDTask;
 
 
 // Task Notification bits
-#define LORA_TX_BIT    0x04
-#define LORA_RX_BIT    0x06
-#define SD_WRITE_BIT   0x08
-
+#define LORA_TX_BIT    0x02
+#define LORA_RX_BIT    0x04
+#define SD_WRITE_BIT   0x06
+#define OLED_BIT       0x08
 
 HardwareSerial Serial1(1);
 
@@ -142,7 +143,7 @@ void IRAM_ATTR fLoRASendISR( void )
     
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
-    /* Notify SD Write Task SD_WRITE BIT */
+    /* Notify SD Write Task SD_WRITE BIT
     xTaskNotifyFromISR( xSDWriteTask,
                        SD_WRITE_BIT,
                        eSetBits,
@@ -151,6 +152,13 @@ void IRAM_ATTR fLoRASendISR( void )
     /* Notify LoRA send task to transmit by setting the TX_BIT */
     xTaskNotifyFromISR( xLoRATask,
                        LORA_TX_BIT,
+                       eSetBits,
+                       &xHigherPriorityTaskWoken );
+
+
+    /* Notify OLED to update display */
+    xTaskNotifyFromISR( xOLEDTask,
+                       OLED_BIT,
                        eSetBits,
                        &xHigherPriorityTaskWoken );
 
@@ -176,7 +184,7 @@ void writeFile(fs::FS &fs, const char * path, const char * message) {
 void setup() {
   Serial.begin(115200);
 
-  Serial.println("Begin ESP32GPSLoRAMultiTask...");
+  Serial.println("Begin ESP32 GPS LoRA Sender...");
 
   sema_GPS_Gate = xSemaphoreCreateBinary();
 
@@ -195,11 +203,17 @@ void setup() {
     for(;;); // Don't proceed, loop forever
   }
 
+  display.clearDisplay();
+  display.setTextColor(WHITE);
+  display.setTextSize(1);
+  display.setCursor(0,0);
+  display.print("LoRA GPS Transmitter");
+  display.setCursor(0,20);
 
   // Initialize SD card
   // Set SD Card SPI
-  spiSD.begin(SSD_SCK, SSD_MISO, SSD_MOSI, SSD_CS);//SCK,MISO,MOSI,CS
-  if(!SD.begin( SD_CS, spiSD, SDSPEED)){   // use only 12, 13, 14, 15 ou 25 26 if possible
+  spiSD.begin(SSD_SCK, SSD_MISO, SSD_MOSI, SSD_CS);
+  if(!SD.begin( SD_CS, spiSD, SDSPEED)){
     Serial.println("Card Mount Failed");
   }
 
@@ -210,10 +224,15 @@ void setup() {
   Serial.println("Initializing SD card...");
   if (!SD.begin(SD_CS)) {
     Serial.println("ERROR - SD card initialization failed!");
+    display.print("SD Card: FAIL");
+    sdCardEnabled = false;
+  } else {
+    sdCardEnabled = true;
+    Serial.println("SD Initialize OK!");
+    display.print("SD Card: OK");
   }
 
-  // If the data.txt file doesn't exist
-  // Create a file on the SD card and write the data labels
+  // Create data file on SD card and write the data labels
   File file = SD.open("/data.txt");
   if(!file) {
     Serial.println("File doens't exist");
@@ -225,6 +244,8 @@ void setup() {
   }
   file.close();
 
+  display.setCursor(0,30);
+
   //SPI LoRa pins
   SPI.begin(SCK, MISO, MOSI, SS);
   //setup LoRa transceiver module
@@ -232,20 +253,15 @@ void setup() {
   
   if (!LoRa.begin(BAND)) {
     Serial.println("Starting LoRa failed!");
+    display.print("LoRa: FAIL");
     while (1);
   }
-  Serial.println("LoRa Initializing OK!");
-  display.setCursor(0,10);
-  display.print("LoRa Initializing OK!");
+  Serial.println("LoRa Init OK!");
+  display.print("LoRa: OK");
+
+  display.display();
 
   loraLastEvent = millis();
-
-  display.clearDisplay();
-  display.setTextColor(WHITE);
-  display.setTextSize(1);
-  display.setCursor(0,0);
-  display.print("LoRA GPS Transmitter");
-  display.display();
 
  
   // create a pointer queue to pass position data
@@ -255,14 +271,20 @@ void setup() {
   xTaskCreatePinnedToCore( fGPS_Parse, "fGPS_Parse", 1000, NULL, 0, &xGPSTask, taskCore0 );
   configASSERT( xGPSTask );
 
+  /*
   Serial.println("Start Task fSD_Write() priority 4 on core 1");
   xTaskCreatePinnedToCore( fSD_Write, "fSD_Write", 1000, NULL, 4, &xSDWriteTask, taskCore1 ); // assigned to core 1
   configASSERT( xSDWriteTask );
+  */
 
   Serial.println("Start Task fLoRA_Send() priority 3 on core 1");
-  // Tasks on Core 1 must have priority > 1 (priority of core 1 loop() task)
   xTaskCreatePinnedToCore( fLoRA_Send, "fLoRA_Send", 1000, NULL, 3, &xLoRATask, taskCore1 ); // assigned to core 1
   configASSERT( xLoRATask );
+
+  Serial.println("Start Task fOLED_Update() priority 3 on core 1");
+  xTaskCreatePinnedToCore( fOLED_Update, "fOLED_Update", 1000, NULL, 3, &xOLEDTask, taskCore1 ); // assigned to core 1
+  configASSERT( xOLEDTask );
+
 
   sema_GPS_Gate = xSemaphoreCreateMutex();
   sema_Posit = xSemaphoreCreateMutex();
@@ -351,6 +373,83 @@ void fSD_Write( void *pvParameter )
 }
 
 
+void fOLED_Update( void *pvParameter )
+{
+
+  Serial.print("fOLED_Update() Task running on core ");
+  Serial.println(xPortGetCoreID());
+
+  BaseType_t xResult;
+  uint32_t ulNotifiedValue;
+
+  for( ;; )
+  {
+
+    /* block until task notification (from timer ISR occurs) */
+    xResult = xTaskNotifyWait( OLED_BIT,
+                         ULONG_MAX,        /* Clear all bits on exit. */
+                         &ulNotifiedValue, /* Stores the notified value. */
+                         portMAX_DELAY );  /* Block indefinately */
+  
+    if( xResult == pdPASS )
+    {
+       if( ( ulNotifiedValue & OLED_BIT ) != 0 )
+       {
+          Serial.println("fOLED_Update() notify / unblock");
+
+          struct XPosit xPosit, *pxPosit;
+
+          if( xQueueReceive( xQ_Posit,
+                             &( pxPosit ),
+                             ( TickType_t ) 10 ) == pdPASS )
+          {
+
+            display.clearDisplay();
+            display.setTextColor(WHITE);
+            display.setTextSize(1);
+            display.setCursor(0,0);
+            
+            display.print("Lat: ");
+            display.print(pxPosit->Lat);
+            
+            display.setCursor(0,10);
+            display.print("Lon: ");
+            display.println(pxPosit->Lon);
+            
+            display.setCursor(0,20);
+            display.print("Alt: ");
+            display.println(pxPosit->Alt);
+            
+            display.setCursor(0,30);
+            display.print("Course:");
+            display.print(pxPosit->Course);
+            display.println(" (deg) ");
+            
+            display.setCursor(0,40);
+            display.print("Speed:");
+            display.print(pxPosit->Speed);
+            display.println(" (kmph)");
+            
+            display.display();
+
+          }
+
+          taskYIELD();
+       }
+  
+       if( ( ulNotifiedValue & LORA_RX_BIT ) != 0 )
+       {
+          /* The RX ISR has set a bit. */
+       }
+    }
+    else
+    {
+       /* Did not receive a notification within the expected time. */
+    }
+  }
+
+}
+
 void fLoRA_Send( void *pvParameter )
 {
 
@@ -387,27 +486,43 @@ void fLoRA_Send( void *pvParameter )
              Serial.println(pxPosit->Lat);
              Serial.print("Lon:");
              Serial.println(pxPosit->Lon);
+             Serial.print("Alt:");
+             Serial.println(pxPosit->Alt);
+             Serial.print("Course:");
+             Serial.println(pxPosit->Course);
+             Serial.print("Speed:");
+             Serial.println(pxPosit->Speed);
 
               int sz = 64;
               char msg[sz];
-          
+
+              int b = 8;
+              char lat[b], lon[b], alt[b], course[b], speed[b];
+
+
               if (loraEnabled && millis() > loraLastEvent + loraSendInterval)
               {
-                Serial.print("LoRA Sending packet: ");
-                Serial.println(loraCounter);
-              
-                sprintf(msg, "%f,%f,%f,%f,%f" , pxPosit->Lat, pxPosit->Lon, pxPosit->Alt, pxPosit->Course, pxPosit->Speed);
-              
+
+                dtostrf(pxPosit->Lat, 4, 2, lat);
+                dtostrf(pxPosit->Lon, 4, 2, lon);
+                dtostrf(pxPosit->Alt, 4, 2, alt);
+                dtostrf(pxPosit->Course, 4, 2, course);
+                dtostrf(pxPosit->Speed, 4, 2, speed);
+  
+                sprintf(msg,"%s,%s,%s,%s,%s", lat, lon, alt, course, speed);
+  
                 Serial.print("LoRA Msg: ");
                 Serial.println(msg);
-              
-                //Send LoRa packet to receiver
+
+                Serial.print("LoRA Sending packet: ");
+                Serial.println(loraCounter);
+
                 LoRa.beginPacket();
                 LoRa.print(msg);
                 LoRa.endPacket();  
-                loraCounter++;
                 loraLastEvent = millis();
-              
+
+                loraCounter++;
                 clearBuffer(msg, sz);
             
                 loraLastEvent = millis();
@@ -460,7 +575,7 @@ void fGPS_Parse(  void *pvParameters )
       Serial.print("Speed (kmph):");
       Serial.println(gps.speed.kmph(),6); 
       Serial.println(" "); 
-  
+
   
       if ( xSemaphoreTake( sema_GPS_Gate, xTicksToWait0 ) == pdTRUE )
       {
@@ -486,7 +601,9 @@ void fGPS_Parse(  void *pvParameters )
         }
   
         xSemaphoreGive( sema_GPS_Gate );
-      }  
+      }
+
+
     } else {
 
       Serial.print("Chars:");
@@ -500,14 +617,16 @@ void fGPS_Parse(  void *pvParameters )
       if (millis() > 5000 && gps.charsProcessed() < 10)
         Serial.println(F("No GPS data received: check wiring"));
 
-      delay(1000);
     }
+
+    smartDelay(1000);
+
   } // for (;;)
   vTaskDelete( NULL );
 } // void fGPS_Parse(  void *pvParameters )
 
 
-static void smartdelay(unsigned long ms)
+static void smartDelay(unsigned long ms)
 {
   unsigned long start = millis();
   do 
