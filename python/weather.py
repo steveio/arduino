@@ -12,25 +12,30 @@
 
 import os
 import json
-import numpy as np
 
+import matplotlib as mpl
+import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import pandas as pd
 from datetime import datetime, timedelta
 from datetime import datetime as dt
+import numpy as np
+
 import seaborn as sns
 
 sns.set(rc={'figure.figsize':(11, 4)})
 
 
-days_to_extract = 7;
+ndays = 180
+days_to_extract = ndays
 path = "../data/weather/"
 files = []
 
 ### Data file path and file format ../data/weather/20200823.json
-for (path, dirs, files) in os.walk(path):
-    files = [ fi for fi in files if fi.endswith(".json") ]
+for (path, dirs, f) in os.walk(path):
+    files = [ fi for fi in f if fi.endswith(".json") ]
+
 
 ### DataFrame to store Daily Metrics - Average, Mix, Max, STD Deviation, Close
 df_stat = pd.DataFrame(columns = ['data', 'date', 'mean' , 'std', 'min' , 'max', 'last'])
@@ -40,6 +45,7 @@ stats = []
 ### Load JSON data, compute statistics dataframes
 def load_json_data(filepath, frames, df_stat):
     with open(filepath) as f:
+        print f
         d = json.load(f)
         df = pd.DataFrame(d)
         filename = os.path.basename(filepath)
@@ -67,7 +73,6 @@ for f in files:
     datestr = bits[0]
     dtm = datetime.strptime(datestr, '%Y%m%d')
     if dtm >= datetime.now()-timedelta(days=days_to_extract):
-        print filename
         df_stat = load_json_data(filename,frames,df_stat)
 
 
@@ -88,6 +93,8 @@ df['Day'] = df.index.day
 df['Weekday Name'] = df.index.weekday_name
 df['Hour'] = df.index.hour
 
+
+
 ### Examples of slicing DataFrame
 
 # display a random sample of 5 rows
@@ -105,30 +112,144 @@ df['Hour'] = df.index.hour
 
 ### Begin charting
 
+pd.set_option('display.max_rows', None)
 
 ### Temperature, Humidity, Air Pressure - 7 Day Line Chart
 
-# Create 3 charts
-fig, ax = plt.subplots(3)
-
 # resample: last 7 days, 60sec mean interval
 end_dt = datetime.now()
-start_dt  = datetime.now() - timedelta(days=7)
+start_dt  = datetime.now() - timedelta(days=ndays)
 
 start_dt = start_dt.strftime("%Y-%m-%d %H:%M:%S")
 end_dt = end_dt.strftime("%Y-%m-%d %H:%M:%S")
 
-df_t = df.loc[start_dt:end_dt]['t'].resample('60S').mean()
-df_h = df.loc[start_dt:end_dt]['h'].resample('60S').mean()
-df_p = df.loc[start_dt:end_dt]['p'].resample('60S').mean()
+print df.keys();
+
+print "Min: "+str(df['t'].dropna().min());
+print "Max: "+str(df['t'].dropna().max());
+print "Std: "+str(df['t'].dropna().mean());
+
+### Max suggests erroneous sensor reading(s) cause data outliers
+### Min: 9.9
+### Max: 97435.39
+### Std: 16.817756016671893
+
+## print dataframe to show outliers
+### print df['t'].nlargest(10);
+
+### 2020-12-21 07:09:26    100377.30
+### 2020-12-03 08:40:26     99435.70
+### 2021-01-20 23:23:26     97435.39
+### 2020-11-09 23:42:59        19.10
+### 2020-11-09 23:58:59        19.10
+
+### print using threshold
+### print df[df['t'] > 50]['t']
+### print df[df['h'] > 50]['h']
+### print df[df['p'] < 960]['t']
+### print df[df['p'] > 1090]['p']
+
+### print df.keys();
+
+## remove outlier for defined range using threshold bounds
+df['t'] = df[df['t'] < 50]['t']
+df['h'] = df[df['h'] < 100]['h']
+df['p'] = df[df['p'] > 96000]['p']
+df['p'] = df[df['p'] < 109000]['p']
+
+print df['t'].nlargest(10);
+print df['h'].nlargest(10);
+print df['p'].nlargest(10);
+
+# adjust temp down for outdoor
+df['t'] = df['t'] - 10
 
 
-ax[0].plot(df_t,linewidth=0.5, label='Temp (C)')
-ax[0].set_title('Temp (C)')
+### print df['t'];
+### print "Max: "+str(df['t'].dropna().max());
+
+## remove outliers by z score threshold
+
+### from scipy import stats
+
+### print df[(np.abs(stats.zscore(df['t'].dropna())) < 3)]
+
+### Traceback (most recent call last):
+### print df['t'].dropna().apply(lambda x: (x - x.mean()) / x.std())
+### AttributeError: 'float' object has no attribute 'mean'
+
+### print df['t'].dropna().apply(lambda x: (x - x.mean()) / x.std())
+
+### Traceback (most recent call last):
+### print df['t'].dropna().apply(lambda x: (x - x.mean()) / x.std())
+### AttributeError: 'float' object has no attribute 'mean'
+
+### as function
+### def zsc(x):
+###    print x
+###    return (x - x.mean()) / x.std();
+### s = zsc(df['t']);
+### print(df[s < 3]);
+
+### Works ok
+### 2021-01-20 23:23:26    149.368557
+### 2021-01-20 23:23:59     -0.005854
+
+### print df[(np.abs(stats.zscore(df[0])) < 3)]
+
+### print df[(stats.zscore(df['t'].dropna()))]
+
+### plot histogram showing distrubution of values
+
+# matplotlib histogram
+### plt.hist( df['t'], color = 'blue', edgecolor = 'black', bins=5)
+
+# seaborn histogram
+##sns.distplot(df['t'], hist=True, kde=False,
+##             bins=12, color = 'blue',
+##             hist_kws={'edgecolor':'black'})
+##
+
+
+### cmap = plt.get_cmap('jet')
+### low = cmap(0.5)
+### medium =cmap(0.2)
+### high = cmap(0.7)
+
+### for i in range(0,3):
+###     patches[i].set_facecolor(low)
+### for i in range(4,8):
+###     patches[i].set_facecolor(medium)
+### for i in range(9,12):
+###     patches[i].set_facecolor(high)
+
+### plt.xlabel("Temp (Celcius)", fontsize=16)
+### plt.ylabel("Sample Freq", fontsize=16)
+### plt.xticks(fontsize=14)
+### plt.yticks(fontsize=14)
+### ax = plt.subplot(111)
+### ax.spines["top"].set_visible(False)
+### ax.spines["right"].set_visible(False)
+
+### plt.show()
+
+
+
+df_t = df.loc[start_dt:end_dt]['t'].resample('1D').mean().dropna()
+df_h = df.loc[start_dt:end_dt]['h'].resample('1D').mean().dropna()
+df_p = df.loc[start_dt:end_dt]['p'].resample('1D').mean().dropna()
+
+# Create 3 charts
+fig, ax = plt.subplots(3)
+
+
+ax[0].plot(df_t,linewidth=0.5, label='Temp (Celcius)')
+ax[0].set_title('Temp C')
 ax[0].set_ylabel('')
 ax[0].legend();
 
-ax[1].plot(df_h,linewidth=0.5, label='Humidity')
+
+ax[1].plot(df_h,linewidth=0.5, label='Humidity %')
 ax[1].set_title('Humidity %')
 ax[1].set_ylabel('')
 ax[1].legend();
@@ -139,6 +260,21 @@ ax[2].set_ylabel('')
 ax[2].axhline(y=102268.9, color='r', linestyle='-', label="High Pressure")
 ax[2].axhline(y=100914.4, color='b', linestyle='-', label="Low Pressure")
 ax[2].legend();
+
+
+plt.show()
+
+
+
+
+# remove outliers - compute Z-Score of each value relative to column mean ./ std deviation, compare abs to threshold
+###df[(np.abs(stats.zscore(df['t'].dropna())) < 3)]
+## print df['t']
+### print "Max: "+str(df['t'].dropna().max());
+
+
+### print "New Max: "+str(df_t['t'].dropna().max());
+
 
 ### sensor is currently indoors, do not display light data
 ###ax[3].plot(df_l,linewidth=0.5, label='Light Level (l)')
@@ -224,7 +360,7 @@ ax[1].xaxis.set_major_formatter(mdates.DateFormatter('%b %d %H:%M'))
 
 # resample last 48 hours, 3 hour intervals
 end_dt = datetime.now()
-start_dt  = datetime.now() - timedelta(hours=160)
+start_dt  = datetime.now() - timedelta(hours=20000)
 
 start_dt = start_dt.strftime("%Y-%m-%d %H:%M:%S")
 end_dt = end_dt.strftime("%Y-%m-%d %H:%M:%S")
@@ -250,14 +386,12 @@ df_p_3h_mean_pct_f = df_p_3h_mean_pct.to_frame()
 df_p_3h_mean_f = df_p_3h_mean.to_frame()
 
 df_p_3h_mean_f['diff'] = df_p_3h_mean_f.diff(axis = 0, periods = 1)
-
 df_p_3h_mean_f['gt0'] = df_p_3h_mean_f['diff'].gt(0)
 df_p_3h_mean_f['lt0'] = df_p_3h_mean_f['diff'].lt(0)
 
 df_p_3h_mean_f['monotonic_rise']=df_p_3h_mean_f['gt0'].groupby(df_p_3h_mean_f['gt0'].ne(df_p_3h_mean_f['gt0'].shift()).cumsum()).cumcount().add(1).where(df_p_3h_mean_f['gt0'],0)
 df_p_3h_mean_f['monotonic_fall']=df_p_3h_mean_f['lt0'].groupby(df_p_3h_mean_f['lt0'].ne(df_p_3h_mean_f['lt0'].shift()).cumsum()).cumcount().add(1).where(df_p_3h_mean_f['lt0'],0)
 
-print(df_p_3h_mean_f)
 
 
 ### plot rise/fall sequences as bar chart
@@ -373,4 +507,35 @@ ax[2].xaxis.set_major_formatter(mdates.DateFormatter('%b %d %H:%M'))
 
 
 ### display charts
+plt.show()
+
+
+
+### Sunrise / Sunset Time by Day
+
+sr = df['sr'].resample('1D').min().dropna()
+ss = df['ss'].resample('1D').min().dropna()
+
+srt = np.array(sr.values.tolist())
+srt = mpl.dates.datestr2num(srt)
+
+sst = np.array(ss.values.tolist())
+sst = mpl.dates.datestr2num(sst)
+
+fig = plt.figure()
+ax = fig.add_subplot(111)
+ax.set_title('Sunrise (GMT) Oct 2020-Feb 2021 for Bournemouth 50.7192 N, 1.8808 W')
+ax.plot_date(sr.index, srt, '-ok', color='red', markersize=4)
+ax.yaxis_date()
+ax.yaxis.set_major_formatter(mdates.DateFormatter('%I:%M %p'))
+fig.autofmt_xdate()
+
+fig = plt.figure()
+ax = fig.add_subplot(111)
+ax.set_title('Sunset (GMT) Oct 2020-Feb 2021 for Bournemouth 50.7192 N, 1.8808 W')
+ax.plot_date(ss.index, sst, '-ok', color='red', markersize=4)
+ax.yaxis_date()
+ax.yaxis.set_major_formatter(mdates.DateFormatter('%I:%M %p'))
+fig.autofmt_xdate()
+
 plt.show()
