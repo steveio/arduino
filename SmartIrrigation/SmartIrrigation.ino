@@ -48,7 +48,7 @@ DHT dht(DHTPIN, DHTTYPE);
 
 float h;     // Humidity (%)
 float tempC; // Temperature (celcius)
-float tempHiThreshold = 14; // defines a "hot" day
+float tempHiThreshold = 18; // defines a "hot" day
 
 // Daily Hi/Low Temperature / Humidity
 int currDay = dt.day();
@@ -204,6 +204,12 @@ void printStats()
     Serial.print(F(" / "));
     Serial.print(hiT[dt.dayOfTheWeek()]);
     Serial.println(F(" ) "));
-    Serial.print(F("Humidity:\t"));
-    Serial.println(h);
+    Serial.print(F("Humid:\t"));
+    Serial.print(h);
+    Serial.print(F(" ( "));
+    Serial.print(loH[dt.dayOfTheWeek()]);
+    Serial.print(F(" / "));
+    Serial.print(hiH[dt.dayOfTheWeek()]);
+    Serial.println(F(" ) "));
+
 }
