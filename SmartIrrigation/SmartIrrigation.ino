@@ -122,7 +122,6 @@ void loop() {
 
   if (millis() >= sampleTimer + sampleInterval)
   {
-
     char dtm[32];
     sprintf(dtm, "%02d/%02d/%02d %02d:%02d" , dt.day(),dt.month(),dt.year(),dt.hour(),dt.minute());
     Serial.println(dtm);
@@ -147,8 +146,6 @@ void loop() {
 // On "hot" days add 2nd evening watering cycle
 void setWaterCycleFreq()
 {
-  currDay = dt.dayOfTheWeek();
-
   if (hiT[dt.dayOfTheWeek()] > tempHiThreshold)
   {
     valve1.initTimer(timer2Cycle);
@@ -190,9 +187,7 @@ void updateStats()
     loT[dt.dayOfTheWeek()] = 0;
     hiH[dt.dayOfTheWeek()] = 0;
     loH[dt.dayOfTheWeek()] = 0;
-
   }
-
 }
 
 void printStats()
