@@ -20,13 +20,11 @@
 
 #include <Wire.h>
 #include "RTClib.h"
-
-
+#include <DHT.h>;
 #include "Relay.h"
 
 RTC_DS1307 rtc;
 DateTime dt;
-
 
 unsigned long startTime = 0;
 unsigned long sampleInterval = 10000;  // sample frequency in ms
@@ -35,13 +33,31 @@ unsigned long sampleTimer = 0;
 #define GPIO_VALVE1 3
 #define SZ_TIME_ELEMENT 3
 
-Timer valve1Timer;
+Timer valve1Timer1Cycle, valve1Timer2Cycle;
 // create variables to define on/off time pairs 
 struct tmElements_t t1_on, t1_off, t2_on, t2_off, t3_on, t3_off;
-struct tmElementArray_t timeArray;
+struct tmElementArray_t timeArray1Cycle, timeArray2Cycle;
 
 
 Relay valve1(GPIO_VALVE1);
+
+// DHT22 Temperature Sensor
+#define DHTPIN 23
+#define DHTTYPE DHT22 
+DHT dht(DHTPIN, DHTTYPE);
+
+float h;     // Humidity (%)
+float tempC; // Temperature (celcius)
+float tempHiThreshold = 15; // defines a "hot" day
+
+// Daily Hi/Low Temperature / Humidity
+int currDay = dt.day();
+
+// Hi / Low - Indexed by day of week (0 = Sun - 6 = Sat)
+float hiT[7] = { 0 }; // T = Temp
+float loT[7] = { 0 };
+float hiH[7] = { 0 }; // H = Humidity
+float loH[7] = { 0 };
 
 
 void setup() {
@@ -76,16 +92,26 @@ void setup() {
   t2_off.Hour = 19;
   t2_off.Min = 10;
 
-  timeArray.n = 2;
-  timeArray.Wday = 0b01111111; // define which days of week timer is active on
+  timeArray1Cycle.n = 1;
+  timeArray1Cycle.Wday = 0b01111111; // define which days of week timer is active on
 
-  timeArray.onTime[0] = t1_on;
-  timeArray.offTime[0] = t1_off;
-  timeArray.onTime[1] = t2_on;
-  timeArray.offTime[1] = t2_off;
+  timeArray1Cycle.onTime[0] = t1_on;
+  timeArray1Cycle.offTime[0] = t1_off;
 
-  valve1Timer.init(TIMER_MINUTE, &timeArray);
-  valve1.initTimer(valve1Timer);
+  valve1Timer1Cycle.init(TIMER_MINUTE, &timeArray1Cycle);
+
+
+  timeArray2Cycle.n = 2;
+  timeArray2Cycle.Wday = 0b01111111; // define which days of week timer is active on
+
+  timeArray2Cycle.onTime[0] = t1_on;
+  timeArray2Cycle.offTime[0] = t1_off;
+  timeArray2Cycle.onTime[1] = t2_on;
+  timeArray2Cycle.offTime[1] = t2_off;
+
+  valve1Timer2Cycle.init(TIMER_MINUTE, &timeArray2Cycle);
+
+  valve1.initTimer(valve1Timer1Cycle);
 
 }
 
@@ -108,6 +134,70 @@ void loop() {
       Serial.println("Valve: off");
       valve1.off();
     }
+
+    updateStats();
+    printStats();
+    setWaterCycleFreq();
+  }
+}
+
+// On "hot" days add 2nd evening watering cycle
+void setWaterCycleFreq()
+{
+  currDay = dt.dayOfTheWeek();
+
+  if (hiT[dt.dayOfTheWeek()] > tempHiThreshold)
+  {
+    valve1.initTimer(valve1Timer2Cycle);
+  } else {
+    valve1.initTimer(valve1Timer1Cycle);
+  }
+}
+  
+
+// Track daily hi/low temperature / humdity
+void updateStats()
+{
+
+  if (NULL == hiT[dt.dayOfTheWeek()] || tempC > hiT[dt.dayOfTheWeek()])
+  {
+    hiT[dt.dayOfTheWeek()] = tempC;
+  }
+  if (NULL == loT[dt.dayOfTheWeek()] || tempC < loT[dt.dayOfTheWeek()])
+  {
+    loT[dt.dayOfTheWeek()] = tempC;
   }
 
+  if (NULL == hiH[dt.dayOfTheWeek()] || h > hiH[dt.dayOfTheWeek()])
+  {
+    hiH[dt.dayOfTheWeek()] = h;
+  }
+  if (NULL == loH[dt.dayOfTheWeek()] || h < loH[dt.dayOfTheWeek()])
+  {
+    loH[dt.dayOfTheWeek()] = h;
+  }
+
+  dt = rtc.now();
+  if (currDay != dt.dayOfTheWeek())
+  {
+    currDay = dt.dayOfTheWeek();
+    hiT[dt.dayOfTheWeek()] = 0;
+    loT[dt.dayOfTheWeek()] = 0;
+    hiH[dt.dayOfTheWeek()] = 0;
+    loH[dt.dayOfTheWeek()] = 0;
+
+  }
+
+}
+
+void printStats()
+{
+    Serial.print("TempC: ");
+    Serial.print(tempC);
+    Serial.print(" / ");
+    Serial.print(loT[dt.dayOfTheWeek()]);
+    Serial.print(" / ");
+    Serial.print(hiT[dt.dayOfTheWeek()]);
+    Serial.print("Humidity: ");
+    Serial.print(h);
 }
