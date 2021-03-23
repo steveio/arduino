@@ -42,13 +42,13 @@ struct tmElementArray_t timeArray1Cycle, timeArray2Cycle;
 Relay valve1(GPIO_VALVE1);
 
 // DHT22 Temperature Sensor
-#define DHTPIN 23
+#define DHTPIN 4
 #define DHTTYPE DHT22 
 DHT dht(DHTPIN, DHTTYPE);
 
 float h;     // Humidity (%)
 float tempC; // Temperature (celcius)
-float tempHiThreshold = 15; // defines a "hot" day
+float tempHiThreshold = 14; // defines a "hot" day
 
 // Daily Hi/Low Temperature / Humidity
 int currDay = dt.day();
@@ -116,6 +116,7 @@ void setup() {
   // default to 1 morning watering cycle
   valve1.initTimer(timer1Cycle);
 
+  sampleTimer = millis();
 }
 
 void loop() {
@@ -124,22 +125,27 @@ void loop() {
   {
     char dtm[32];
     sprintf(dtm, "%02d/%02d/%02d %02d:%02d" , dt.day(),dt.month(),dt.year(),dt.hour(),dt.minute());
+    Serial.println("");
     Serial.println(dtm);
     
     dt = rtc.now();
     
     if (valve1.timer.isScheduled(dt.minute(), dt.hour(), dt.dayOfTheWeek()))
     {
-      Serial.println(F("Valve: on"));
+      Serial.println(F("Valve:\ton"));
       valve1.on();
     } else {
-      Serial.println(F("Valve: off"));
+      Serial.println(F("Valve:\toff"));
       valve1.off();
     }
 
+    valve1.timer.printSchedule(Serial);
     updateStats();
     printStats();
     setWaterCycleFreq();
+
+    sampleTimer = millis();
+
   }
 }
 
@@ -190,13 +196,14 @@ void updateStats()
 }
 
 void printStats()
-{
-    Serial.print(F("TempC: "));
+{  
+    Serial.print(F("TempC:\t"));
     Serial.print(tempC);
-    Serial.print(F(" / "));
+    Serial.print(F(" ( "));
     Serial.print(loT[dt.dayOfTheWeek()]);
     Serial.print(F(" / "));
     Serial.print(hiT[dt.dayOfTheWeek()]);
-    Serial.print(F("Humidity: "));
-    Serial.print(h);
+    Serial.println(F(" ) "));
+    Serial.print(F("Humidity:\t"));
+    Serial.println(h);
 }
