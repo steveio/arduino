@@ -27,13 +27,13 @@ RTC_DS1307 rtc;
 DateTime dt;
 
 unsigned long startTime = 0;
-unsigned long sampleInterval = 10000;  // sample frequency in ms
+unsigned long sampleInterval = 30000;  // sample frequency in ms
 unsigned long sampleTimer = 0;
 
 #define GPIO_VALVE1 3
 #define SZ_TIME_ELEMENT 3
 
-Timer valve1Timer1Cycle, valve1Timer2Cycle;
+Timer timer1Cycle, timer2Cycle;
 // create variables to define on/off time pairs 
 struct tmElements_t t1_on, t1_off, t2_on, t2_off, t3_on, t3_off;
 struct tmElementArray_t timeArray1Cycle, timeArray2Cycle;
@@ -79,7 +79,6 @@ void setup() {
     rtc.adjust(arduino_t.unixtime());
   }
 
-  Serial.println("Starting DHT22");
   dht.begin();
 
   pinMode(GPIO_VALVE1, OUTPUT);
@@ -101,7 +100,7 @@ void setup() {
   timeArray1Cycle.onTime[0] = t1_on;
   timeArray1Cycle.offTime[0] = t1_off;
 
-  valve1Timer1Cycle.init(TIMER_MINUTE, &timeArray1Cycle);
+  timer1Cycle.init(TIMER_MINUTE, &timeArray1Cycle);
 
 
   timeArray2Cycle.n = 2;
@@ -112,9 +111,10 @@ void setup() {
   timeArray2Cycle.onTime[1] = t2_on;
   timeArray2Cycle.offTime[1] = t2_off;
 
-  valve1Timer2Cycle.init(TIMER_MINUTE, &timeArray2Cycle);
+  timer2Cycle.init(TIMER_MINUTE, &timeArray2Cycle);
 
-  valve1.initTimer(valve1Timer1Cycle);
+  // default to 1 morning watering cycle
+  valve1.initTimer(timer1Cycle);
 
 }
 
@@ -131,10 +131,10 @@ void loop() {
     
     if (valve1.timer.isScheduled(dt.minute(), dt.hour(), dt.dayOfTheWeek()))
     {
-      Serial.println("Valve: on");
+      Serial.println(F("Valve: on"));
       valve1.on();
     } else {
-      Serial.println("Valve: off");
+      Serial.println(F("Valve: off"));
       valve1.off();
     }
 
@@ -151,9 +151,9 @@ void setWaterCycleFreq()
 
   if (hiT[dt.dayOfTheWeek()] > tempHiThreshold)
   {
-    valve1.initTimer(valve1Timer2Cycle);
+    valve1.initTimer(timer2Cycle);
   } else {
-    valve1.initTimer(valve1Timer1Cycle);
+    valve1.initTimer(timer1Cycle);
   }
 }
   
@@ -197,12 +197,12 @@ void updateStats()
 
 void printStats()
 {
-    Serial.print("TempC: ");
+    Serial.print(F("TempC: "));
     Serial.print(tempC);
-    Serial.print(" / ");
+    Serial.print(F(" / "));
     Serial.print(loT[dt.dayOfTheWeek()]);
-    Serial.print(" / ");
+    Serial.print(F(" / "));
     Serial.print(hiT[dt.dayOfTheWeek()]);
-    Serial.print("Humidity: ");
+    Serial.print(F("Humidity: "));
     Serial.print(h);
 }
