@@ -79,6 +79,9 @@ void setup() {
     rtc.adjust(arduino_t.unixtime());
   }
 
+  Serial.println("Starting DHT22");
+  dht.begin();
+
   pinMode(GPIO_VALVE1, OUTPUT);
 
   // Solenoid Valve On/Off times and DayOfWeek
@@ -158,6 +161,8 @@ void setWaterCycleFreq()
 // Track daily hi/low temperature / humdity
 void updateStats()
 {
+  h = dht.readHumidity();
+  tempC = dht.readTemperature();
 
   if (NULL == hiT[dt.dayOfTheWeek()] || tempC > hiT[dt.dayOfTheWeek()])
   {
