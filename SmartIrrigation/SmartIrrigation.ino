@@ -179,7 +179,6 @@ void updateStats()
     loH[dt.dayOfTheWeek()] = h;
   }
 
-  dt = rtc.now();
   if (currDay != dt.dayOfTheWeek())
   {
     currDay = dt.dayOfTheWeek();
