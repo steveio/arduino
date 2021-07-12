@@ -11,6 +11,7 @@
  
 #define GPIO_WIND_VANE A0
 #define GPIO_WIND_SPEED 2
+#define GPIO_RAIN 3
 
 
 int vcc = 5;
@@ -41,10 +42,23 @@ char * directionLabel[] = { d1, d2, d3, d4, d5, d6, d7, d8, d9, d10, d11, d12, d
 
 
 volatile int windSpeedCounter = 0;
+volatile int rainBucketCounter = 0;
+int rainBucketDebounce = 200;
+unsigned long rainBucketLastEvent = 0;
+
 
 void isr_windSpeed()
 {
   windSpeedCounter++;
+}
+
+void isr_rainBucket()
+{
+  if (millis() > rainBucketLastEvent + rainBucketDebounce)
+  {
+    rainBucketCounter++;
+    rainBucketLastEvent = millis();
+  }
 }
 
 void setup() {
@@ -53,15 +67,20 @@ void setup() {
 
   pinMode(GPIO_WIND_VANE, INPUT);
   pinMode(GPIO_WIND_SPEED, INPUT);
+  pinMode(GPIO_RAIN, INPUT);
+
+  rainBucketLastEvent = millis();
 
   attachInterrupt(digitalPinToInterrupt(GPIO_WIND_SPEED), isr_windSpeed, HIGH);
+  attachInterrupt(digitalPinToInterrupt(GPIO_RAIN), isr_rainBucket, CHANGE);
 }
 
 void loop() {
 
-  float windVane, windSpeed;
+  float windVane, windSpeed, rainBucket;
 
   windSpeed = digitalRead(GPIO_WIND_SPEED);
+  rainBucket = digitalRead(GPIO_RAIN);
 
   windVane = analogRead(GPIO_WIND_VANE);
   buffer = windVane * vcc;
@@ -150,17 +169,25 @@ ESE 150
 
   Serial.print("VANE: ");
   Serial.print(directionLabel[dir-1]);
+  /*
   Serial.print("\t");
   Serial.print(dir);
   Serial.print("\t");
   Serial.print(r2);
   Serial.print("\t");
   Serial.print(windVane);
+  */
   Serial.print("\t");
   Serial.print("SPEED: ");
   Serial.print(windSpeed);
   Serial.print("\t");
-  Serial.println(windSpeedCounter);
+  Serial.print(windSpeedCounter);
+
+  Serial.print("\t");
+  Serial.print("RAIN: ");
+  Serial.print(rainBucket);
+  Serial.print("\t");
+  Serial.println(rainBucketCounter);
 
   delay(100);
 }
