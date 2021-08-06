@@ -1,0 +1,27 @@
+ESP32 LoRA Weather Station 
+
+
+DHT11: Temp, Humidity
+DHT11 Sensor ERROR
+Humidity:nan
+Temperature (celsuis):nan
+Temperature (fahrenheit):nan
+BMP280 Air Pressure
+Temperature = 24.07 *C
+Pressure = 1009.64 hPa
+Approx altitude = 83.22 m
+Light Dependant Resistor (LDR): 4095
+VANE: Guru Meditation Error: Core  1 panic'ed (LoadProhibited). Exception was unhandled.
+Core 1 register dump:
+PC      : 0x400014fd  PS      : 0x00060330  A0      : 0x800d4a00  A1      : 0x3ffb1f00
+A2      : 0x000000c8  A3      : 0x000000c4  A4      : 0x000000ff  A5      : 0x0000ff00
+A6      : 0x00ff0000  A7      : 0xff000000  A8      : 0x00000000  A9      : 0x3ffb1ed0
+A10     : 0x3ffbed18  A11     : 0x3f400f3e  A12     : 0x3f400f3e  A13     : 0x0000ff00
+A14     : 0x00ff0000  A15     : 0xff000000  SAR     : 0x00000013  EXCCAUSE: 0x0000001c
+EXCVADDR: 0x000000c8  LBEG    : 0x400014fd  LEND    : 0x4000150d  LCOUNT  : 0xffffffff
+
+Backtrace: 0x400014fd:0x3ffb1f00 0x400d49fd:0x3ffb1f10 0x400d4a31:0x3ffb1f30 0x400d123f:0x3ffb1f50 0x400d152c:0x3ffb1f90 0x400d50e5:0x3ffb1fb0 0x40088d81:0x3ffb1fd0
+
+
+
+/home/stevee/.arduino15/packages/esp32/tools/esptool_py/2.6.1/esptool.py --chip esp32 --port /dev/ttyUSB0 --baud 921600 --before default_reset --after hard_reset write_flash -z --flash_mode dio --flash_freq 80m --flash_size detect 0xe000 /home/stevee/.arduino15/packages/esp32/hardware/esp32/1.0.4/tools/partitions/boot_app0.bin 0x1000 /home/stevee/.arduino15/packages/esp32/hardware/esp32/1.0.4/tools/sdk/bin/bootloader_dio_80m.bin 0x10000 /tmp/arduino_build_970166/LDR.ino.bin 0x8000 /tmp/arduino_build_970166/LDR.ino.partitions.bin
