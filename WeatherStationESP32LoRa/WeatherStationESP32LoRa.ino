@@ -3,9 +3,10 @@
 * ESP32 LoRa Weather Station 
 * - Wind Vane (16 compass point) 
 * - Anemometer (Wind Speed) 
-* - DHT11 Temp / Humidity 
-* - LDR light level sensor 
+* - Rain Tipping Bucket
+* - DHT Temp / Humidity 
 * - BMP280 Air Pressure 
+* - LDR light level sensor 
 * 
 * @see https://www.sparkfun.com/products/15901 
 * @see https://cdn.sparkfun.com/assets/d/1/e/0/6/DS-15901-Weather_Meter.pdf 
@@ -306,7 +307,7 @@ void getRainBucket()
 
   Serial.print("Rain Bucket: ");
   Serial.print("\t");
-  Serial.println(rainTicks);
+  Serial.print(rainTicks);
   Serial.print("\tVol:");
   Serial.println(rainVol);
 
