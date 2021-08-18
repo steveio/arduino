@@ -41,16 +41,43 @@ unsigned long currentMillis;
 unsigned long previousMillis = 0; 
 const long sampleInterval = 10000; // sample period (milliseconds)
 
+// Periodic Statistics
+#define SAMPLE_FREQ_SEC 6    // number of samples per minute  
+#define SAMPLE_FREQ_MIN 60   // ""            ""      hour
+#define SAMPLE_FREQ_HOUR 24  // ""            ""      day
 
-// DHT22 Temperature / Humidity 
-#define DHTTYPE DHT22   // DHT 22  (AM2302)
+// Data Sample Result
+typedef struct 
+{ 
+  float tempC;
+  float humidity;
+  float airPressure;
+  float bmpTempC;
+  float bmpAlt;
+
+  long windTicks; 
+  float windVelocity; 
+  float windRPM; 
+  float windKMPH; 
+
+  int windDir;
+  char windDirLabel[3];
+
+  long rainTicks;
+  float rainVol;
+
+} SensorData;
+
+SensorData sensorData;
+
+// DHT Temperature / Humidity 
+#define DHTTYPE DHT11
 DHT dht(GPIO_DHT, DHTTYPE); 
-float h, tc, tf;
+
 
 
 // BMP180 Barometric Pressure 
 Adafruit_BMP280 bmp; 
-float bmpPressure, bmpTempC, bmpAlt = 0; 
 float hiThreshold = 102268.9; // Pa / 30.20 inHg 
 float lowThreshold = 100914.4; // Pa / 30.20 inHg
 
@@ -59,9 +86,8 @@ int ldr_apin_val = 0;
 const int ldr_daynight_threshold = 300; // day/night level 
 int ldr_adjusted;
 
-
 // Anemometer
-volatile long windSensorTicks = 0; // Reed switch counter
+volatile long windTicks = 0; // Reed switch counter
 int windSpeedDebounce = 100; 
 unsigned long windSpeedLastEvent = 0;
 
@@ -69,16 +95,8 @@ unsigned long windSpeedLastEvent = 0;
 #define SENSOR_RADIUS 0.75 // Radius (mm) from axis to anemometer cup centre 
 #define SENSOR_TICKS_REV 1 // Sensor "clicks" in single 360 rotation
 
-typedef struct 
-{ 
-  float velocity; 
-  long windSensorTicks; 
-  float rpm; 
-  float kmph; 
-} WindSpeedData;
 
-
-// Wind Vane 
+// Wind Vane
 int vcc = 3; 
 float vout = 0; 
 int adcres = 4096; 
@@ -104,19 +122,14 @@ char d14[] = "S  ";
 char d15[] = "SSE"; 
 char d16[] = "SSW";
 
-
 char * directionLabel[] = { d1, d2, d3, d4, d5, d6, d7, d8, d9, d10, d11, d12, d13, d14, d15, d16 };
 
 // Rain Bucket 
-volatile int rainBucketCounter = 0; 
-int rainBucketDebounce = 200; 
+float rainVolPerBucket = 0.2794;
+volatile int rainTicks = 0;
+int rainBucketDebounce = 200;
 unsigned long rainBucketLastEvent = 0;
 
-
-// Periodic Statistics
-#define SAMPLE_FREQ_SEC 6    // number of samples per minute  
-#define SAMPLE_FREQ_MIN 60   // ""            ""      hour
-#define SAMPLE_FREQ_HOUR 24  // ""            ""      day
 
 
 void IRAM_ATTR isr_windSpeed() 
@@ -124,7 +137,7 @@ void IRAM_ATTR isr_windSpeed()
   if (millis() > windSpeedLastEvent + windSpeedDebounce) 
   {   
     windSpeedLastEvent = millis(); 
-    windSensorTicks++; 
+    windTicks++; 
   }
 }
 
@@ -132,7 +145,7 @@ void IRAM_ATTR isr_rainBucket()
 { 
   if (millis() > rainBucketLastEvent + rainBucketDebounce) 
   { 
-    rainBucketCounter++; 
+    rainTicks++; 
     rainBucketLastEvent = millis(); 
   } 
 }
@@ -144,9 +157,9 @@ void getWindSpeed()
 
   Serial.print("Wind Speed: \t");
   Serial.print("Ticks \t");
-  Serial.print(windSensorTicks);
+  Serial.print(windTicks);
 
-  float revs = windSensorTicks / (float) SENSOR_TICKS_REV; 
+  float revs = windTicks / (float) SENSOR_TICKS_REV; 
   float rpm = revs * SAMPLE_FREQ_SEC;
 
   // calculate linear velocity (metres per second) 
@@ -165,18 +178,13 @@ void getWindSpeed()
   Serial.println(kmph);
 
   // @todo record sample to 1 minute velocity array 
-  //v[secIndex++] = velocity;
-  //windSpeedData.v[secIndex++] = velocity;
 
-  /*
-  WindSpeedData data; 
-  data.velocity = velocity; 
-  data.sensorTicks = windSensorTicks; 
-  data.rpm = rpm; 
-  data.kmph = kmph;
-  */
+  sensorData.windTicks = windTicks;
+  sensorData.windVelocity = velocity; 
+  sensorData.windRPM = rpm; 
+  sensorData.windKMPH = kmph;
 
-  windSensorTicks = 0; 
+  windTicks = 0; 
   revs = 0; 
   rpm = 0;
 }
@@ -289,16 +297,27 @@ void getWindDirection()
   Serial.print("\t"); 
   Serial.println(directionLabel[dir-1]);
 
+  sensorData.windDir = dir;
+  memcpy(&sensorData.windDirLabel, &directionLabel[dir-1], sizeof(sensorData.windDirLabel));
+
 }
 
 void getRainBucket()
 {
 
+  float rainVol = rainVolPerBucket * rainTicks;
+
   Serial.print("Rain Bucket: ");
   Serial.print("\t");
-  Serial.println(rainBucketCounter);
+  Serial.println(rainTicks);
+  Serial.print("\tVol:");
+  Serial.println(rainVol);
 
-  rainBucketCounter = 0;
+  sensorData.rainTicks = rainTicks;
+  sensorData.rainVol = rainVol;
+
+
+  rainTicks = 0;
 }
 
 void getLightLevel() 
@@ -312,26 +331,36 @@ void getTempHumidity()
 {
   Serial.print("DHT22: ");
 
+  float h, tc, tf;
+
   h = dht.readHumidity();
   tc= dht.readTemperature();
+  tf= dht.readTemperature(true);
 
   if (isnan(h) || isnan(tc)) { 
     Serial.println("Sensor ERROR"); 
   } else {
     Serial.print("\tTemp (c):"); 
     Serial.print(tc); 
-  
+
+    Serial.print("\tTemp (f):"); 
+    Serial.println(tf);
+
     Serial.print("\tHumidity:"); 
     Serial.println(h); 
+
+    sensorData.tempC = tc;
+    sensorData.humidity = h;
   }
-  //Serial.print("Temperature (fahrenheit):"); 
-  //Serial.println(tf);
+
 }
 
 
 void getAirPressure() 
 {
   Serial.print(F("BMP280: "));
+  float bmpPressure, bmpTempC, bmpAlt;
+
   bmpPressure = bmp.readPressure()/100; // pressure in hPa, you can change the unit 
   bmpTempC = bmp.readTemperature(); 
   bmpAlt = bmp.readAltitude(1019.66); // "1019.66" is the pressure(hPa) at sea level in day in your region
@@ -342,6 +371,11 @@ void getAirPressure()
   Serial.print(bmpPressure); 
   Serial.print(F("\tAlt (m): ")); 
   Serial.println(bmpAlt);
+
+  sensorData.airPressure = bmpPressure;
+  sensorData.bmpTempC = bmpTempC;
+  sensorData.bmpAlt = bmpAlt;
+
 }
 
 
