@@ -46,6 +46,7 @@ const long sampleInterval = 10000; // sample period (milliseconds)
 #define SAMPLE_FREQ_MIN 60   // ""            ""      hour
 #define SAMPLE_FREQ_HOUR 24  // ""            ""      day
 
+
 // Data Sample Result
 typedef struct 
 { 
@@ -75,11 +76,10 @@ SensorData sensorData;
 DHT dht(GPIO_DHT, DHTTYPE); 
 
 
-
 // BMP180 Barometric Pressure 
 Adafruit_BMP280 bmp; 
-float hiThreshold = 102268.9; // Pa / 30.20 inHg 
-float lowThreshold = 100914.4; // Pa / 30.20 inHg
+const float hiThreshold = 102268.9; // Pa / 30.20 inHg 
+const float lowThreshold = 100914.4; // Pa / 30.20 inHg
 
 // LDR - Light Dependant Resistor (S)A0, VCC, -GND, 
 int ldr_apin_val = 0; 
@@ -88,7 +88,7 @@ int ldr_adjusted;
 
 // Anemometer
 volatile long windTicks = 0; // Reed switch counter
-int windSpeedDebounce = 100; 
+const int windSpeedDebounce = 100; 
 unsigned long windSpeedLastEvent = 0;
 
 #define PI_CONSTANT 3.142 
@@ -97,10 +97,10 @@ unsigned long windSpeedLastEvent = 0;
 
 
 // Wind Vane
-int vcc = 3; 
+const int vcc = 3; 
 float vout = 0; 
-int adcres = 4096; 
-float r1 = 10000; 
+const int adcres = 4096; 
+const float r1 = 10000; 
 float r2 = 0; 
 float buffer = 0; 
 int dir = 0;
@@ -125,9 +125,9 @@ char d16[] = "SSW";
 char * directionLabel[] = { d1, d2, d3, d4, d5, d6, d7, d8, d9, d10, d11, d12, d13, d14, d15, d16 };
 
 // Rain Bucket 
-float rainVolPerBucket = 0.2794;
+const float rainVolPerBucket = 0.2794;
 volatile int rainTicks = 0;
-int rainBucketDebounce = 200;
+const int rainBucketDebounce = 200;
 unsigned long rainBucketLastEvent = 0;
 
 
@@ -152,8 +152,8 @@ void IRAM_ATTR isr_rainBucket()
 
 void getWindSpeed() 
 {
-  //float windSpeed;
-  //windSensorStatus = digitalRead(GPIO_WIND_SPEED); 
+  //float windSensor;
+  //windSensor = digitalRead(GPIO_WIND_SPEED); 
 
   Serial.print("Wind Speed: \t");
   Serial.print("Ticks \t");
@@ -172,12 +172,9 @@ void getWindSpeed()
   Serial.print("\t Velo (m/s): "); 
   Serial.print(velocity);
 
-  // Todo - Conversions - Kmph/Mph/Beaufort Scale 
   float kmph = rpmToKmph(rpm); 
   Serial.print("\tKmph: "); 
   Serial.println(kmph);
-
-  // @todo record sample to 1 minute velocity array 
 
   sensorData.windTicks = windTicks;
   sensorData.windVelocity = velocity; 
