@@ -317,13 +317,13 @@ void getTempHumidity()
 
   if (isnan(h) || isnan(tc)) { 
     Serial.println("Sensor ERROR"); 
+  } else {
+    Serial.print("\tTemp (c):"); 
+    Serial.print(tc); 
+  
+    Serial.print("\tHumidity:"); 
+    Serial.println(h); 
   }
-  Serial.print("\tTemp (c):"); 
-  Serial.print(tc); 
-
-  Serial.print("\tHumidity:"); 
-  Serial.println(h); 
-
   //Serial.print("Temperature (fahrenheit):"); 
   //Serial.println(tf);
 }
@@ -331,27 +331,24 @@ void getTempHumidity()
 
 void getAirPressure() 
 {
-  Serial.println(F("BMP280 Air Pressure"));
+  Serial.print(F("BMP280: "));
   bmpPressure = bmp.readPressure()/100; // pressure in hPa, you can change the unit 
   bmpTempC = bmp.readTemperature(); 
   bmpAlt = bmp.readAltitude(1019.66); // "1019.66" is the pressure(hPa) at sea level in day in your region
   
-  Serial.print(F("Temperature = ")); 
+  Serial.print(F("\tTemp (*C): ")); 
   Serial.print(bmpTempC); 
-  Serial.println(" *C");
-  Serial.print(F("Pressure = ")); 
+  Serial.print(F("\tAirP (hPa): ")); 
   Serial.print(bmpPressure); 
-  Serial.println(" hPa");
-  Serial.print(F("Approx altitude = ")); 
-  Serial.print(bmpAlt); 
-  Serial.println(" m"); 
+  Serial.print(F("\tAlt (m): ")); 
+  Serial.println(bmpAlt);
 }
 
 
 void setup() 
 {
   Serial.begin(115200);
-  Serial.println(F("ESP32 Weather Station..."));
+  Serial.println(F("ESP32 Weather Station (init)..."));
   
   pinMode(GPIO_WIND_VANE, INPUT); 
   pinMode(GPIO_WIND_SPEED, INPUT); 
@@ -384,9 +381,6 @@ void loop()
 
   unsigned long currentMillis = millis();
   if (currentMillis - previousMillis >= sampleInterval) {
-
-    Serial.print(F("ESP32 Weather Station...\t"));
-    Serial.println(millis());
 
     // read & display sensors or counters (for interupt measured devices) 
     getTempHumidity(); 
