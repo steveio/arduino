@@ -302,9 +302,7 @@ void loop() {
     readSoilMoisture(s2Pin, &soilMoistureVal[1], &soilMoistureStatusId[1]);
 
 
-    unsigned long interval = (SECS_PER_DAY * 1000);
-
-    if (pumpEnabled && pump1.timer.isScheduled(dt.hour(), dt.unixtime(), interval))
+    if (pumpEnabled && pump1.timer.isScheduled(dt.hour(), dt.unixtime()))
     {
       Serial.println("PE");
       pump1.activate(dt.hour());
@@ -312,7 +310,7 @@ void loop() {
       Serial.println("PD");
     }
 
-    if (pumpEnabled && pump1.timer.isScheduled(dt.hour(), dt.unixtime(), interval))
+    if (pumpEnabled && pump1.timer.isScheduled(dt.hour(), dt.unixtime()))
     {
       pump2.activate(dt.hour());
     }
