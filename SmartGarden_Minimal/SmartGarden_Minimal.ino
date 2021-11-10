@@ -57,7 +57,7 @@ const int s2Pin = 9;  // DHT22
 
 
 // master on/off switches
-bool pumpEnabled = true;
+bool pumpEnabled = false;
 bool lampEnabled = true;
 
 
@@ -67,7 +67,7 @@ bool lampEnabled = true;
 
 long pumpDuration = 600000; // 1 min activation (equals approx 1 litre)
 long pumpDelay = 3600000; // 1 hour delay between activations
-long pumpTimerHourBitmask = 0b00000000000000000000001000000000; // 8am watering
+long pumpTimerHourBitmask = 0b00000000000000000000010000000000; // 9am watering
 
 Timer pump1Timer;
 Pump pump1(r1Pin, pumpDuration, pumpDelay); // (<pin-id> <duration> <delay-between-activations>)
@@ -77,7 +77,7 @@ Pump pump2(r2Pin, pumpDuration, pumpDelay);
 
 
 Timer lamp1Timer;
-long lamp1TimerBitmask =0b00000000000111111111111110000000; // 6am - 9pm
+long lamp1TimerBitmask =0b00000000000111111111111111000000; // 6am - 9pm
 Relay lamp1(r3Pin);
 
 
@@ -404,45 +404,28 @@ void setup() {
   sprintf(dtm, "%02d/%02d/%02d %02d:%02d" , dt.day(),dt.month(),dt.year(),dt.hour(),dt.minute());
   Serial.println(dtm);
 
-  Serial.println("End Setup()");
-
   sampleTimer = millis();
 }
 
 void loop() {
 
-  if (millis() >= sampleTimer + sampleInterval)
+  // check & update timed device status 
+  dt = rtc.now();
+
+  if (lampEnabled)
   {
+    lamp1.update(dt.hour(), NULL, dt.unixtime());
+  }
 
-    // check lamp status for current hour and (de)activate
-    dt = rtc.now();
+  if (pumpEnabled)
+  {
+    pump1.update(dt.hour(), NULL, dt.unixtime());
+    pump2.update(dt.hour(), NULL, dt.unixtime());
+  }
 
-    if (lampEnabled)
-    {
-      if (lamp1.timer.isScheduled(dt.hour(), NULL)) {
-        lamp1.on();
-      } else if (!lamp1.timer.isScheduled(dt.hour(), NULL)) {
-        lamp1.off();
-      }
-    }
-
-    // read soil moisture sensors: soilMoistureStatusId: { V_WET 0, WET 1, DRY 2, V_DRY 3 }
+  if (millis() >= sampleTimer + sampleInterval)
+  {    
     readSoilMoisture(s1Pin, &soilMoistureVal[0], &soilMoistureStatusId[0]);
-
-    if (pumpEnabled && pump1.timer.isScheduled(dt.hour(), dt.unixtime()))
-    {
-      pump1.activate(dt.hour());
-    }
-
-    if (pumpEnabled && pump1.timer.isScheduled(dt.hour(), dt.unixtime()))
-    {
-      pump2.activate(dt.hour());
-    }
-
-    // check for pump deactivation
-    pump1.deactivate(dt.hour(), dt.dayOfTheWeek());
-    pump2.deactivate(dt.hour(), dt.dayOfTheWeek());
-
     readDHT22();
 
     displaySerial();
@@ -450,5 +433,4 @@ void loop() {
 
     sampleTimer = millis();
   }
-
 }
