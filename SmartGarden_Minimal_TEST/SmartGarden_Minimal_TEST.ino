@@ -58,7 +58,7 @@ bool lampEnabled = true;
 long pumpDuration = 10000; // 10 sec activation 
 long pumpDelay = 3600000; // 1 hour delay between activations
 long pump1TimerHourBitmask = 0b00000000000000000000100000000000; // 11am
-long pump2TimerHourBitmask = 0b00000000000000000000100000000000; // 12am
+long pump2TimerHourBitmask = 0b00000000000000000001000000000000; // 12am
 
 Timer pump1Timer;
 Pump pump1(r1Pin, pumpDuration, pumpDelay); // (<pin-id> <duration> <delay-between-activations>)
@@ -417,7 +417,6 @@ void loop() {
   }
 
   displayOLED();
-  delay(20000);
   Serial.println("Begin LAMP 1 Test");
 
   strcpy(d_test, "10:00:00"); 
@@ -432,10 +431,9 @@ void loop() {
     lamp1.update(dt.unixtime());
   }
 
-  displayOLED();
-  delay(20000);
+  delay(10000);
 
-  strcpy(d_test, "10:59:59"); 
+  strcpy(d_test, "11:00:00"); 
   setDateTime(d_test, t_test);
   dt = rtc.now();
   sprintf(dtm, "%02d/%02d/%02d %02d:%02d" , dt.day(),dt.month(),dt.year(),dt.hour(),dt.minute());
@@ -447,22 +445,76 @@ void loop() {
     pump1.update(dt.unixtime());
   }
 
-  Serial.println("PUMP 1 OFF Test");
-  displayOLED();
-  delay(20000);
+  if (pump1.isActive())
+  {
+    Serial.println("PUMP 1 ACTIVE");
+  } else {
+    Serial.println("PUMP 1 ERROR");
+  }
 
-  strcpy(d_test, "10:59:59");
+  delay(9000);
+
+  strcpy(d_test, "11:00:10");
+  setDateTime(d_test, t_test);
+  dt = rtc.now();
+  sprintf(dtm, "%02d/%02d/%02d %02d:%02d" , dt.day(),dt.month(),dt.year(),dt.hour(),dt.minute());
+  Serial.println(dtm);
+  Serial.println("PUMP 1 OFF Test");
+
+  if (pumpEnabled)
+  {
+    pump1.update(dt.unixtime());
+  }
+
+  if (!pump1.isActive())
+  {
+    Serial.println("PUMP 1 INACTIVE");
+  } else {
+    Serial.println("PUMP 1 ERROR");
+  }
+
+  delay(10000);
+
+  strcpy(d_test, "11:00:00"); 
   setDateTime(d_test, t_test);
   dt = rtc.now();
   sprintf(dtm, "%02d/%02d/%02d %02d:%02d" , dt.day(),dt.month(),dt.year(),dt.hour(),dt.minute());
   Serial.println(dtm);
   Serial.println("PUMP 2 ON Test");
 
-  displayOLED();
-  pump2.update(dt.unixtime());
+  if (pumpEnabled)
+  {
+    pump2.update(dt.unixtime());
+  }
 
+  if (pump2.isActive())
+  {
+    Serial.println("PUMP 2 ACTIVE");
+  } else {
+    Serial.println("PUMP 2 ERROR");
+  }
+
+  delay(9000);
+
+  strcpy(d_test, "11:00:10");
+  setDateTime(d_test, t_test);
+  dt = rtc.now();
+  sprintf(dtm, "%02d/%02d/%02d %02d:%02d" , dt.day(),dt.month(),dt.year(),dt.hour(),dt.minute());
+  Serial.println(dtm);
   Serial.println("PUMP 2 OFF Test");
 
-  delay(30000);
+  if (pumpEnabled)
+  {
+    pump2.update(dt.unixtime());
+  }
+
+  if (!pump2.isActive())
+  {
+    Serial.println("PUMP 2 INACTIVE");
+  } else {
+    Serial.println("PUMP 2 ERROR");
+  }
+
+  Serial.println("\n\n");
 
 }
