@@ -1,5 +1,7 @@
 /** 
- *  Smart Indoor Gardening
+ *  Smart Indoor Garden
+ *  
+ *  Demonstrates a microcontroller managed indoor seed propagator environment
  * 
  *  -- Scheduled (relay) activation for LED LAMP(s)
  *  -- Scheduled 5v pump activation for watering
@@ -36,14 +38,11 @@ SSD1306AsciiWire oled;
 
 RTC_DS1307 rtc;
 DateTime dt;
-char dtm[32], buf[2];
+char dtm[16], buf[2];
 int nextEvent;
 
 
-#define VERSION_ID 1.0
-
 unsigned long startTime = 0;
-unsigned long calibrationTime = 1500; // time for sensor(s) to calibrate
 unsigned long sampleInterval = 10000;  // sample frequency in ms
 unsigned long sampleTimer = 0;
 
@@ -65,7 +64,7 @@ bool lampEnabled = true;
 // Timer 32 bit bitmask defines hours (24h) device is on | off
 // 0b 00000000 23 22 21 20 19 18 17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 0
 
-long pumpDuration = 600000; // 1 min activation (equals approx 1 litre)
+long pumpDuration = 15000;
 long pumpDelay = 3600000; // 1 hour delay between activations
 long pumpTimerHourBitmask = 0b00000000000000000000010000000000; // 9am watering
 
@@ -145,106 +144,105 @@ void readDHT22()
 void displayOLED()
 {
 
-    oled.clear();
-    oled.set1X();
-    
-    sprintf(dtm, "%02d/%02d/%02d %02d:%02d" , dt.day(),dt.month(),dt.year(),dt.hour(),dt.minute());
-    oled.println(dtm);
+  oled.clear();
+  oled.set1X();
+  
+  sprintf(dtm, "%02d/%02d/%02d %02d:%02d" , dt.day(),dt.month(),dt.year(),dt.hour(),dt.minute());
+  oled.println(dtm);
 
-    // LAMP 1
-    oled.print(F("Lamp1: "));
-    if (lamp1.isActive())
-    {
-      oled.print("1");
-    } else {
-      oled.print("0");
-    }
+  // LAMP 1
+  oled.print(F("L1: "));
+  if (lamp1.isActive())
+  {
+    oled.print("1");
+  } else {
+    oled.print("0");
+  }
 
-    oled.print(F("/"));
+  oled.print(F("/"));
 
-    if (lamp1.timer.isScheduled(dt.hour()))
-    {
-      oled.print("1");
-    } else {
-      oled.print("0");
-    }
+  if (lamp1.timer.isScheduled(dt.hour()))
+  {
+    oled.print("1");
+  } else {
+    oled.print("0");
+  }
 
-    oled.print(F("/"));
+  oled.print(F("/"));
 
-    nextEvent = lamp1.timer.getNextEvent(dt.hour());
-    sprintf(buf,"%02d",nextEvent);
-    oled.print(buf);
-    oled.println(":00");
+  nextEvent = lamp1.timer.getNextEvent(dt.hour());
+  sprintf(buf,"%02d",nextEvent);
+  oled.print(buf);
+  oled.println(":00");
 
-    // PUMP 1
-    oled.print(F("Pump1: "));
-    if (pump1.isActive())
-    {
-      oled.print("1");
-    } else {
-      oled.print("0");
-    }
+  // PUMP 1
+  oled.print(F("P1: "));
+  if (pump1.isActive())
+  {
+    oled.print("1");
+  } else {
+    oled.print("0");
+  }
 
-    oled.print(F("/"));
+  oled.print(F("/"));
 
-    if (pump1.timer.isScheduled(dt.hour()))
-    {
-      oled.print("1");
-    } else {
-      oled.print("0");
-    }
+  if (pump1.timer.isScheduled(dt.hour()))
+  {
+    oled.print("1");
+  } else {
+    oled.print("0");
+  }
 
-    oled.print(F("/"));
+  oled.print(F("/"));
 
-    nextEvent = pump1.timer.getNextEvent(dt.hour());
-    sprintf(buf,"%02d",nextEvent);
-    oled.print(buf);
-    oled.println(":00");
+  nextEvent = pump1.timer.getNextEvent(dt.hour());
+  sprintf(buf,"%02d",nextEvent);
+  oled.print(buf);
+  oled.println(":00");
 
-    // PUMP 2
-    oled.print(F("Pump2: "));
-    if (pump2.isActive())
-    {
-      oled.print("1");
-    } else {
-      oled.print("0");
-    }
+  // PUMP 2
+  oled.print(F("P2: "));
+  if (pump2.isActive())
+  {
+    oled.print("1");
+  } else {
+    oled.print("0");
+  }
 
-    oled.print(F("/"));
+  oled.print(F("/"));
 
-    if (pump2.timer.isScheduled(dt.hour()))
-    {
-      oled.print("1");
-    } else {
-      oled.print("0");
-    }
+  if (pump2.timer.isScheduled(dt.hour()))
+  {
+    oled.print("1");
+  } else {
+    oled.print("0");
+  }
 
-    oled.print(F("/"));
+  oled.print(F("/"));
 
-    nextEvent = pump2.timer.getNextEvent(dt.hour());
-    sprintf(buf,"%02d",nextEvent);
-    oled.print(buf);
-    oled.println(":00");
+  nextEvent = pump2.timer.getNextEvent(dt.hour());
+  sprintf(buf,"%02d",nextEvent);
+  oled.print(buf);
+  oled.println(":00");
 
-    oled.println("");
+  oled.println("");
 
-    oled.print(F("Soil: "));
-    sprintf(buf,"%02d",soilMoistureVal[0]);
-    oled.print(buf);
-    oled.print("/");
-    sprintf(buf,"%02d",soilMoistureStatusId[0]);
-    oled.println(buf);
+  oled.print(F("Soil: "));
+  sprintf(buf,"%02d",soilMoistureVal[0]);
+  oled.print(buf);
+  oled.print("/");
+  sprintf(buf,"%02d",soilMoistureStatusId[0]);
+  oled.println(buf);
 
-    oled.print(F("Env: "));
-    oled.print(tempC);
-    oled.print((char)223);
-    oled.print(F("/"));
-    oled.print(humidity);
-    oled.println(F("%"));
+  oled.print(F("Env: "));
+  oled.print(tempC);
+  oled.print(F("/"));
+  oled.print(humidity);
+  oled.println(F("%"));
 
 }
 
-
+/*
 void displaySerial()
 {
 
@@ -345,6 +343,7 @@ void displaySerial()
 
 }
 
+*/
 
 void setup() {
 
@@ -401,9 +400,6 @@ void setup() {
   sprintf(dtm, "%02d/%02d/%02d %02d:%02d" , dt.day(),dt.month(),dt.year(),dt.hour(),dt.minute());
   oled.println(dtm);
 
-  sprintf(dtm, "%02d/%02d/%02d %02d:%02d" , dt.day(),dt.month(),dt.year(),dt.hour(),dt.minute());
-  Serial.println(dtm);
-
   sampleTimer = millis();
 }
 
@@ -414,13 +410,13 @@ void loop() {
 
   if (lampEnabled)
   {
-    lamp1.update(dt.hour(), NULL, dt.unixtime());
+    lamp1.update(dt.unixtime());
   }
 
   if (pumpEnabled)
   {
-    pump1.update(dt.hour(), NULL, dt.unixtime());
-    pump2.update(dt.hour(), NULL, dt.unixtime());
+    pump1.update(dt.unixtime());
+    pump2.update(dt.unixtime());
   }
 
   if (millis() >= sampleTimer + sampleInterval)
@@ -428,8 +424,8 @@ void loop() {
     readSoilMoisture(s1Pin, &soilMoistureVal[0], &soilMoistureStatusId[0]);
     readDHT22();
 
-    displaySerial();
     displayOLED();
+    //displaySerial();
 
     sampleTimer = millis();
   }
