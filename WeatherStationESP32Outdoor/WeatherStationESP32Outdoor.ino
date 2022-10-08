@@ -161,8 +161,6 @@ void getWindSpeed()
   // calculate linear velocity (metres per second) 
   float velocity = rpmToLinearVelocity(rpm);
 
-  Serial.print("\tRevs: "); 
-  Serial.print(revs);
   Serial.print("\tRPM: "); 
   Serial.print(rpm);
   Serial.print("\t Velo (m/s): "); 
@@ -209,10 +207,6 @@ void getWindDirection()
   r2 = r1 * buffer / 1000;
 
   Serial.print("Wind Dir: \t"); 
-  Serial.print(windVane); 
-  Serial.print("\t"); 
-  Serial.print(r2); 
-  Serial.print("\t");
 
   /** 
   * Wind Vane Calibration - 3.3v VCC based on 10k resistance voltage divider ) 
@@ -291,14 +285,19 @@ void getWindDirection()
     dir = 16;
   }
 
-  Serial.print("\t"); 
-  Serial.print(dir); 
-  Serial.print("\t");
   if (dir > 0) {
-    Serial.println(directionLabel[dir-1]);
+    Serial.print(directionLabel[dir-1]);
   } else {
-    Serial.println("n/a");
+    Serial.print("n/a");
   }
+
+  Serial.print("\t"); 
+  Serial.print(windVane); 
+  Serial.print("\t"); 
+  Serial.print(r2); 
+  Serial.print("\t");
+  Serial.print("\t"); 
+  Serial.println(dir); 
 
   sensorData.windDir = dir;
   memcpy(&sensorData.windDirLabel, &directionLabel[dir-1], sizeof(sensorData.windDirLabel));
@@ -310,8 +309,8 @@ void getRainBucket()
 
   float rainVol = rainVolPerBucket * rainTicks;
 
-  Serial.print("Rain Bucket: ");
-  Serial.print("\t Ticks:");
+  Serial.print("Rain Bucket: \t");
+  Serial.print("Ticks:");
   Serial.print(rainTicks);
   Serial.print("\tVol (mm): ");
   Serial.println(rainVol);
@@ -342,13 +341,13 @@ void getTempHumidity()
   if (isnan(h) || isnan(tc)) { 
     Serial.println("Sensor ERROR"); 
   } else {
-    Serial.print("\tTemp (*C):"); 
+    Serial.print("\tTemp (*C): "); 
     Serial.print(tc); 
 
-    Serial.print("\tTemp (f):"); 
+    Serial.print("\tTemp (f): "); 
     Serial.print(tf);
 
-    Serial.print("\tHumidity:"); 
+    Serial.print("\tHumidity: "); 
     Serial.println(h); 
 
     sensorData.tempC = tc;
